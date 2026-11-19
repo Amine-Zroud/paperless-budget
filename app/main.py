@@ -8,6 +8,7 @@ Kategorien = Paperless-Tags, die in den Einstellungen als Budget-Kategorie marki
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -30,6 +31,8 @@ from . import auth as au, bank, parking as pk, payslip as pay, purpose as purp, 
 PAPERLESS_URL = os.environ.get("PAPERLESS_URL", "http://paperless:8000").rstrip("/")
 PAPERLESS_TOKEN = os.environ.get("PAPERLESS_TOKEN", "")
 PAPERLESS_PUBLIC_URL = os.environ.get("PAPERLESS_PUBLIC_URL", PAPERLESS_URL).rstrip("/")
+PAPERLESS_HOST_HEADER = os.environ.get("PAPERLESS_HOST_HEADER", "").strip()
+log = logging.getLogger("paperless-budget")   # optional: Host-Name, den Paperless erlaubt
 PAPERLESS_API_VERSION = os.environ.get("PAPERLESS_API_VERSION", "")
 PAPERLESS_VERIFY_SSL = os.environ.get("PAPERLESS_VERIFY_SSL", "true").lower() != "false"
 AMOUNT_FIELD_NAME = os.environ.get("AMOUNT_FIELD_NAME", "Total")
@@ -385,20 +388,38 @@ def client() -> httpx.AsyncClient:
     global _client
     if _client is None:
         accept = "application/json" + (f"; version={PAPERLESS_API_VERSION}" if PAPERLESS_API_VERSION else "")
+        headers = {"Authorization": f"Token {PAPERLESS_TOKEN}", "Accept": accept}
+        if PAPERLESS_HOST_HEADER:
+            headers["Host"] = PAPERLESS_HOST_HEADER
         _client = httpx.AsyncClient(
             base_url=PAPERLESS_URL,
-            headers={"Authorization": f"Token {PAPERLESS_TOKEN}", "Accept": accept},
+            headers=headers,
             timeout=30,
             verify=PAPERLESS_VERIFY_SSL,
         )
     return _client
 
 
+def _disallowed_host(r: httpx.Response) -> bool:
+    """Django lehnt den Host-Namen ab (PAPERLESS_ALLOWED_HOSTS) – kommt als nackte HTML-Seite „Bad Request (400)“."""
+    return r.status_code == 400 and "<h1>Bad Request (400)</h1>" in r.text
+
+
 async def pl_request(method: str, path: str, **kw):
     try:
         r = await client().request(method, path, **kw)
+        pub = httpx.URL(PAPERLESS_PUBLIC_URL).host
+        if _disallowed_host(r) and pub and pub != httpx.URL(PAPERLESS_URL).host and client().headers.get("Host") != pub:
+            # interne Adresse nicht in ALLOWED_HOSTS: mit dem öffentlichen Host-Namen erneut versuchen und dabei bleiben
+            log.warning("Paperless lehnt Host %s ab – verwende Host-Header %s", httpx.URL(PAPERLESS_URL).host, pub)
+            client().headers["Host"] = pub
+            r = await client().request(method, path, **kw)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Paperless nicht erreichbar ({PAPERLESS_URL}): {e}")
+    if _disallowed_host(r):
+        raise HTTPException(502, f"Paperless lehnt den Host-Namen „{client().headers.get('Host') or httpx.URL(PAPERLESS_URL).host}“ ab "
+                                 f"(Fehler 400). In Paperless PAPERLESS_ALLOWED_HOSTS bzw. PAPERLESS_URL prüfen – oder hier PAPERLESS_URL "
+                                 f"auf eine Adresse setzen, die Paperless erlaubt (z.B. die öffentliche) bzw. PAPERLESS_HOST_HEADER setzen.")
     if r.status_code == 401 or r.status_code == 403:
         raise HTTPException(502, "Paperless lehnt den API-Token ab (401/403). PAPERLESS_TOKEN prüfen.")
     if r.status_code >= 400:

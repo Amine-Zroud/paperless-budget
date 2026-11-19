@@ -379,6 +379,7 @@ In der `.env` stehen Adressen und Zugangsdaten. Namen von Tags und Feldern (`AMO
 | `PAPERLESS_URL` | `http://paperless:8000` | Adresse, unter der der Container Paperless erreicht |
 | `PAPERLESS_TOKEN` | – | API-Token |
 | `PAPERLESS_PUBLIC_URL` | = `PAPERLESS_URL` | Für die Links „Dokument öffnen“ im Browser |
+| `PAPERLESS_HOST_HEADER` | leer | Host-Name für Anfragen an Paperless, falls Paperless die interne Adresse ablehnt (Fehler 400, `PAPERLESS_ALLOWED_HOSTS`). Ohne Angabe versucht die App bei diesem Fehler automatisch den Host aus `PAPERLESS_PUBLIC_URL`. |
 | `PAPERLESS_VERIFY_SSL` | `true` | `false` bei selbstsigniertem Zertifikat |
 | `PAPERLESS_API_VERSION` | leer | API-Version fixieren, falls nötig |
 | `AMOUNT_FIELD_NAME` | `Total` | Name des Währungs-Felds (Gross-/Kleinschreibung egal) |
