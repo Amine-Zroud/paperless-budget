@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth as au, bank, parking as pk, payslip as pay, purpose as purp, vehicles as veh
+from . import auth as au, bank, parking as pk, payslip as pay, payslip_be, purpose as purp, vehicles as veh
 from .i18n import _t, pick_lang, set_lang
 
 # ---------------------------------------------------------------- Konfiguration
@@ -545,7 +545,7 @@ def exclusion(doc_id: int, tags: list[int], flags: dict, settings: dict, tag_nam
     # order confirmations are only noted – the invoice or debit is counted later
     if (doc_type and doc_type in (settings.get("payslip_document_type_ids") or [])) or \
             set(tags) & set(settings.get("payslip_tag_ids") or []) or doc_id in payslip_ids():
-        return True, "Lohnabrechnung (Einnahme)", "tag"
+        return True, _t("Payslip (income)"), "tag"
     oname = (settings.get("order_tag_name") or "").strip().lower()
     order = next((t for t in tags if oname and tag_names.get(t, "").strip().lower() == oname), None)
     if order is not None:
@@ -753,16 +753,21 @@ def income_rule_for(t: dict, rules: list[dict]) -> Optional[dict]:
 def _payslips_ok() -> list[dict]:
     """Recognised payslips; "regular" = payout without special payments (13th-month pay, bonus) – for expectations."""
     with db() as con:
-        rows = [dict(r) for r in con.execute("SELECT * FROM payslips WHERE ok = 1 AND payout IS NOT NULL ORDER BY date")]
+        rows = [dict(r) for r in con.execute("SELECT * FROM payslips WHERE ok = 1 AND payout > 0 ORDER BY date")]
     for r in rows:
         r["extras"] = json.loads(r.get("extras") or "[]")
-        extra = sum(x["amount"] for x in r["extras"])
+        r["extras"] = [x for x in r["extras"] if x["kind"] != "voucher"]      # vouchers are not money received
         ratio = (r["payout"] / r["gross"]) if r["gross"] else 1
-        r["regular"] = round(max(0.0, r["payout"] - extra * ratio), 2) if extra else r["payout"]
+        # net part of the special payments: exact when the payslip says so (separate page), else proportional to the gross
+        extra = sum(x["net"] if x.get("net") is not None else x["amount"] * ratio for x in r["extras"])
+        r["regular"] = round(max(0.0, r["payout"] - extra), 2) if extra else r["payout"]
     return rows
 
 
 def _extras_label(ps: dict) -> str:
+    if ps.get("extras") and not ps.get("regular"):   # nothing but special pay (holiday pay, annual prime …)
+        top = max(ps["extras"], key=lambda x: x["amount"])
+        return f" – {top['label']}"
     kinds = {x["kind"] for x in ps.get("extras") or []}
     parts = ([_t("13th-month pay")] if "13" in kinds else []) + ([_t("Bonus")] if "bonus" in kinds else [])
     return f" + {' + '.join(parts)}" if parts else ""
@@ -794,7 +799,8 @@ def _ps_label(ps: dict) -> str:
     # "Peter Muster" -> Peter, "Muster Petra" (surname first) -> Petra: the shorter/last word is rarely unambiguous,
     # hence the full name if short enough
     name = ps.get("person") or ""
-    return f"Lohn {name}" if name and len(name) <= 24 else ("Lohn " + (who[0] if who else (ps.get("employer") or "")))
+    sal = _t("Salary")
+    return f"{sal} {name}" if name and len(name) <= 24 else (f"{sal} " + (who[0] if who else (ps.get("employer") or "")))
 
 
 def bank_incomes(start: date, end: date) -> list[dict]:
@@ -924,7 +930,8 @@ async def payslip_docs_found() -> list[dict]:
     st = get_settings()
     base = {"fields": "id,title,created,correspondent,document_type,tags", "ordering": "-created"}
     found: dict[int, dict] = {}
-    queries = [{"title__icontains": "lohnabrechnung"}]   # title is enough
+    # the title is enough: German, French and Dutch/English payslip titles
+    queries = [{"title__icontains": w} for w in ("lohnabrechnung", "billet de paie", "billet_de_paie", "fiche de paie", "loonbrief", "loonstrook", "payslip")]
     if st.get("payslip_document_type_ids"):
         queries.append({"document_type__id__in": ",".join(map(str, st["payslip_document_type_ids"]))})
     if st.get("payslip_tag_ids"):
@@ -954,15 +961,17 @@ async def payslip_docs():
 
 async def parse_payslip_one(doc_id: int) -> dict:
     doc = await pl_request("GET", f"/api/documents/{doc_id}/")
-    ps = pay.parse_payslip(doc.get("content") or "")
-    if not ps.ok:
+    content = doc.get("content") or ""
+    ps = pay.parse_payslip(content)
+    # Belgian payslips: the PDF layout text keeps amount and label on one line (and survives a broken text layer)
+    if not ps.ok or payslip_be.looks_belgian(content):
         alt = pay.parse_payslip(await pdf_layout_text(doc_id))
-        if alt.ok:
+        if alt.ok and (not ps.ok or (alt.payout or 0) > (ps.payout or 0)):
             ps = alt
     meta = await get_meta()
     corr = {c["id"]: c["name"] for c in meta["correspondents"]}
     created = str(doc.get("created") or "")[:10]
-    employer = corr.get(doc.get("correspondent")) or next((l.strip() for l in (doc.get("content") or "").splitlines() if l.strip()), None)
+    employer = corr.get(doc.get("correspondent")) or ps.employer or next((l.strip() for l in content.splitlines() if l.strip()), None)
     month = ps.month or (created[:7] if created else None)
     with db() as con:
         old = con.execute("SELECT ok FROM payslips WHERE doc_id = ?", (doc_id,)).fetchone()
@@ -1018,7 +1027,7 @@ def list_payslips(year: int):
             "SELECT id, date, amount, merchant, text FROM transactions WHERE amount > 0 AND date >= ? AND date < ?",
             (f"{year - 1}-12-01", f"{year + 1}-02-01"))]
     pairs = match_payslips([r for r in rows if r["ok"] and r["payout"]], credits)
-    kinds = ("ahv", "alv", "bvg", "insurance", "tax", "other")
+    kinds = ("ahv", "alv", "onss", "bvg", "insurance", "tax", "other")
     persons: dict = {}
     for r in rows:
         r["deductions"] = json.loads(r["deductions"] or "[]")
@@ -1031,12 +1040,13 @@ def list_payslips(year: int):
             continue
         key = r["person"] or r["employer"] or "?"
         p = persons.setdefault(key, {"person": key, "employers": set(), "count": 0, "gross": 0.0, "net": 0.0, "payout": 0.0,
-                                     "child_allowance": 0.0, "extras": 0.0, **{k: 0.0 for k in kinds}})
+                                     "child_allowance": 0.0, "extras": 0.0, "vouchers": 0.0, **{k: 0.0 for k in kinds}})
         p["employers"].add(r["employer"] or "")
         p["count"] += 1
         for f in ("gross", "net", "payout", "child_allowance"):
             p[f] += r[f] or 0
-        p["extras"] += sum(x["amount"] for x in r["extras"])
+        p["extras"] += sum(x["amount"] for x in r["extras"] if x["kind"] in ("13", "bonus"))
+        p["vouchers"] += sum(x["amount"] for x in r["extras"] if x["kind"] == "voucher")
         for d in r["deductions"]:
             p[d["kind"] if d["kind"] in kinds else "other"] += d["amount"]
     totals = []
@@ -2770,7 +2780,7 @@ async def setup_create(body: CreateIn):
     elif body.kind == "date-field":
         await pl_request("POST", "/api/custom_fields/", json={"name": name, "data_type": "date"})
     else:
-        raise HTTPException(400, "Unbekannte Art")
+        raise HTTPException(400, _t("Unknown kind"))
     return await get_meta(force=True)
 
 

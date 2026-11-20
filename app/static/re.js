@@ -116,7 +116,7 @@ async function reCosts(p) {
       <td><span class="srcb ${l.source}">${srcLabel(l.source)}</span></td>
       <td><div class="it-purpose" title="${esc(l.purpose || "")}">${l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>` : esc(l.title)}</div>
           <div class="it-sub">${esc(l.purpose || "")}${l.implicit ? (" " + __("· via tag")) : ""}${l.percent != null && l.percent !== 100 && l.alloc_id ? ` ${__("· {percent} % of {full_amount}", {percent: l.percent, full_amount: fmt(l.full_amount)})}` : ""}${l.fixed_amount != null && l.alloc_id ? ` ${__("· part of {full_amount}", {full_amount: fmt(l.full_amount)})}` : ""}</div></td>
-      <td><select class="lc-cat">${catOpts(p).map(([k, t]) => `<option value="${k}" ${String(k) === String(l.category_id ?? "") ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>${l.category_guessed ? `<div class="guess">automatisch erkannt</div>` : ""}</td>
+      <td><select class="lc-cat">${catOpts(p).map(([k, t]) => `<option value="${k}" ${String(k) === String(l.category_id ?? "") ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>${l.category_guessed ? `<div class="guess">${__("detected automatically")}</div>` : ""}</td>
       <td><select class="lc-unit">${unitOpts(p).map(([k, t]) => `<option value="${k}" ${String(k) === String(l.unit_id ?? "") ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></td>
       <td><input class="lc-qty" type="number" step="any" value="${l.quantity ?? ""}" ${l.source === "Fix" ? "disabled" : ""}>${l.quantity_guessed ? `<div class="guess">${__("from receipt")}</div>` : ""}</td>
       <td class="num"><b>${fmt(l.amount)}</b></td>
@@ -303,11 +303,11 @@ async function reStatement(p) {
     <div class="card pv">
       <div class="cardhead"><h3>${__("Preview")}</h3><select id="stPick">${opts.map(([k, t]) => `<option value="${k}" ${k === RE.stSel ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
       <div class="muted">${__("{interim}{name} · {stay} – {stay2} · {days} of {days_total} days", {interim: st.interim ? (__("<b>Interim statement</b> ·") + " ") : "", name: esc(st.unit.name), stay: fmtDate(st.stay[0]), stay2: fmtDate(st.stay[1]), days: st.days, days_total: st.days_total})}</div>
-      ${st.oil ? `<div class="muted small" style="margin-top:4px">${__("🛢 Heating oil {span}", {span: st.oil.complete ? __("by consumption: {liters} litres = {amount} (stock {date} → {date2}, purchases from {source}, avg {price} / 100 l)", {liters: fmtN(st.oil.liters), amount: fmt(st.oil.amount), date: fmtDate(st.oil.start.date), date2: fmtDate(st.oil.end.date), source: st.oil.source === "Lieferungen" ? "erfassten Lieferungen" : __("receipts"), price: st.oil.price ?? "–"})
+      ${st.oil ? `<div class="muted small" style="margin-top:4px">${__("🛢 Heating oil {span}", {span: st.oil.complete ? __("by consumption: {liters} litres = {amount} (stock {date} → {date2}, purchases from {source}, avg {price} / 100 l)", {liters: fmtN(st.oil.liters), amount: fmt(st.oil.amount), date: fmtDate(st.oil.start.date), date2: fmtDate(st.oil.end.date), source: st.oil.source === "Lieferungen" ? __("recorded deliveries") : __("receipts"), price: st.oil.price ?? "–"})
         : `<span class="neg">${__("by purchase – {join}", {join: st.oil.missing_price ? __("Price for the tank level reading is missing (enter a price, or deliveries with amount)") : __("Tank level reading {Tage} of the period missing{join}", {Tage: !st.oil.start ? __("at the start (around {need_start}, ±20 days)", {need_start: fmtDate(st.oil.need_start)}) : __("at the end (around {need_end}, ±20 days)", {need_end: fmtDate(st.oil.need_end)}), join: st.oil.readings?.length ? ` ${__("– recorded: {join}", {join: st.oil.readings.slice(-4).map(fmtDate).join(", ")})}` : (" " + __("– no reading recorded yet"))})})}
           <a href="#" data-oiladd="${!st.oil.start ? st.oil.need_start : st.oil.need_end}">${__("Record a reading for this date")}</a></span>`})}</div>` : ""}
       ${(st.meters || []).map((m) => `<div class="muted small" style="margin-top:4px">${__("⚡ Meter {name} (general): {missing}", {name: esc(m.name), missing: m.quantity != null
-        ? __("{quantity} {unit} in the period{b} (reading {slice} → {slice2}{estimated}){category}, billed according to invoices", {quantity: fmtN(m.quantity), unit: esc(m.unit), b: m.amount != null ? `, erwartet ca. <b>${fmt(m.amount)}</b>` : "", slice: fmtDate(m.start[0].slice(0, 10)), slice2: fmtDate(m.end[0].slice(0, 10)), estimated: m.estimated ? ", Ende hochgerechnet" : "", category: m.category ? ` ${__("– shown in brackets at “{category}”", {category: esc(m.category)})}` : (" " + __("– no utility category assigned (Meters → Settings)"))})
+        ? __("{quantity} {unit} in the period{b} (reading {slice} → {slice2}{estimated}){category}, billed according to invoices", {quantity: fmtN(m.quantity), unit: esc(m.unit), b: m.amount != null ? `, ${__("expected approx.")} <b>${fmt(m.amount)}</b>` : "", slice: fmtDate(m.start[0].slice(0, 10)), slice2: fmtDate(m.end[0].slice(0, 10)), estimated: m.estimated ? ", Ende hochgerechnet" : "", category: m.category ? ` ${__("– shown in brackets at “{category}”", {category: esc(m.category)})}` : (" " + __("– no utility category assigned (Meters → Settings)"))})
         : esc(m.missing)})}</div>`).join("")}
       ${st.interim ? `<div class="muted small" style="margin-top:4px">${__("Only costs booked in the period count (annual bills, e.g. water, may still be missing).")}</div>` : ""}
       <table>
@@ -330,7 +330,7 @@ async function reStatement(p) {
           <label>${__("until (cut-off date)")}<input id="stTo" type="date" min="${pStart}" max="${pEnd}" value="${RE.stTo}"></label>` : ""}
         ${tenant ? `<label>${__("Advance payment")}<input id="stAkonto" type="number" step="0.05" value="${st.akonto}"><span class="muted small">${__("received {akonto_received} · per contract {akonto_expected}", {akonto_received: fmt(st.akonto_received), akonto_expected: fmt(st.akonto_expected)})}</span></label>` : ""}
         <label>${__("Invoice date")}<input id="stDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
-        <label class="check"><input id="stUpload" type="checkbox" checked> PDF in Paperless ablegen</label>
+        <label class="check"><input id="stUpload" type="checkbox" checked> ${__("File the PDF in Paperless")}</label>
       </div>
       <div class="row" style="margin-top:12px"><button id="stGen" class="primary">${__("Generate Word & PDF")}</button></div>
       <div id="stResult" style="margin-top:10px"></div>
@@ -376,7 +376,7 @@ function reSetup(p) {
   const keyTable = `<table class="etable"><thead><tr><th>${__("Key")}</th><th style="width:150px">${__("Type")}</th>${p.units.map((u) => `<th class="num">${esc(u.name)}</th>`).join("")}<th class="num">${__("Sum")}</th><th></th></tr></thead><tbody>
     ${pctKeys.map((k) => { const sum = p.units.reduce((a, u) => a + (Number(k.shares[u.id]) || 0), 0);
       return `<tr><td><input data-ent="keys" data-id="${k.id}" data-f="name" value="${esc(k.name)}"></td>
-        <td><select data-ent="keys" data-id="${k.id}" data-f="type">${[["percent", "feste Prozente"], ["area", __("by area")], ["equal", __("evenly")]].map(([v, l]) => `<option value="${v}" ${v === k.type ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+        <td><select data-ent="keys" data-id="${k.id}" data-f="type">${[["percent", __("fixed percentages")], ["area", __("by area")], ["equal", __("evenly")]].map(([v, l]) => `<option value="${v}" ${v === k.type ? "selected" : ""}>${l}</option>`).join("")}</select></td>
         ${p.units.map((u) => `<td>${k.type === "percent" ? `<input class="share" type="number" step="0.01" data-key="${k.id}" data-unit="${u.id}" value="${k.shares[u.id] ?? ""}">`
           : `<span class="muted">${k.type === "area" ? (u.area ? ((u.area / p.units.reduce((a, x) => a + (x.area || 0), 0)) * 100).toFixed(2) : "0.00") : (100 / p.units.length).toFixed(2)} %</span>`}</td>`).join("")}
         <td class="num ${k.type === "percent" && Math.abs(sum - 100) > 0.01 ? "warn" : ""}" data-sum="${k.id}">${k.type === "percent" ? sum.toFixed(2) + " %" : "100.00 %"}</td>
@@ -403,7 +403,7 @@ function reSetup(p) {
     </form></div>
 
   <div class="card"><h3>${__("Flats")}</h3>
-    ${etable("units", p.units, [{ f: "name", label: __("Label") }, { f: "area", label: __("Area m²"), type: "number", w: "120px" }, { f: "owner_occupied", label: "selbst bewohnt", type: "check", w: "110px" }])}</div>
+    ${etable("units", p.units, [{ f: "name", label: __("Label") }, { f: "area", label: __("Area m²"), type: "number", w: "120px" }, { f: "owner_occupied", label: __("owner-occupied"), type: "check", w: "110px" }])}</div>
 
   <div class="card"><div class="cardhead"><h3>${__("Distribution keys")}</h3>${!p.categories.length ? `<button id="pfDefaults" class="primary">${__("Create default keys & cost types")}</button>` : ""}</div>
     <p class="muted small">${__("Fixed percentages per flat (sum 100 %), by area or evenly. Assign space heating/hot water above at the building.")}</p>
@@ -465,8 +465,8 @@ async function drawStock(p) {
     { f: "kind", label: __("Type"), type: "select", options: () => [["ablesung", __("Reading")], ["lieferung", __("Delivery")]], w: "120px" },
     { f: "date", label: __("Date"), type: "date", w: "140px" },
     { f: "liters", label: __("Litres"), type: "static", w: "120px", render: (r) => `<input data-ent="heating-stock" data-id="${r.id}" data-f="liters" type="number" step="any"
-        value="${r.liters ?? ""}" title="${r.kind === "lieferung" ? "gelieferte Liter" : "Tankstand"}" placeholder="${r.kind === "lieferung" ? "geliefert" : "Tankstand"}">` },
-    { f: "price", label: "CHF / 100 l", type: "static", w: "130px", render: (r) => r.kind === "lieferung"
+        value="${r.liters ?? ""}" title="${r.kind === "lieferung" ? __("litres delivered") : __("tank level")}" placeholder="${r.kind === "lieferung" ? __("delivered") : __("tank level")}">` },
+    { f: "price", label: `${S.meta?.currency || "EUR"} / 100 l`, type: "static", w: "130px", render: (r) => r.kind === "lieferung"
         ? `<span class="muted small">${r.unit_price != null ? n2(r.unit_price) : "–"}</span>`
         : r.price_source === "Durchschnitt"
           ? `<b class="small">${n2(r.price_used)}</b> <span class="muted small">Ø${r.price != null && Math.abs(r.price - r.price_used) > 0.005 ? ` ${__("(recorded {price} not used)", {price: n2(r.price)})}` : ""}</span>`
@@ -474,14 +474,14 @@ async function drawStock(p) {
     { f: "amount", label: __("Amount"), type: "static", w: "120px", render: (r) => r.kind === "lieferung"
         ? `<input data-ent="heating-stock" data-id="${r.id}" data-f="amount" type="number" step="any" value="${r.amount ?? ""}" placeholder="${__("Invoice")}">`
         : `<span class="muted small">${r.price_used != null ? fmt(r.liters * r.price_used / 100) : ""}</span>` },
-    { f: "avg", label: "Ø Tankinhalt", type: "static", w: "150px", render: (r) => `<span class="small">${r.avg_price != null ? n2(r.avg_price) + " / 100 l" : "–"}</span>
+    { f: "avg", label: __("Ø tank content"), type: "static", w: "150px", render: (r) => `<span class="small">${r.avg_price != null ? n2(r.avg_price) + " / 100 l" : "–"}</span>
         ${r.kind === "ablesung" && r.consumed > 0 ? `<br><span class="muted small">${__("Consumption since last reading {consumed} l", {consumed: fmtN(r.consumed)})}</span>` : ""}` },
     { f: "note", label: __("Note"), ph: __("e.g. reading at end of period") }], { add: false });
   const last = rows.find((r) => r.avg_price != null);
   box.insertAdjacentHTML("afterbegin", last ? `<p class="small" style="margin:4px 0 8px">${__("Current average price of tank content:")} <b>${__("{avg_price} / 100 l", {avg_price: n2(last.avg_price)})}</b> <span class="muted">${__("(as of {date})", {date: fmtDate(last.date)})}</span></p>`
     : `<p class="small neg" style="margin:4px 0 8px">${__("No average yet: first reading with price (opening stock) or a delivery with litres")} <b>${__("and")}</b> ${__("amount.")}</p>`);
-  box.insertAdjacentHTML("beforeend", `<div class="row"><button class="linkbtn" data-add="heating-stock" data-kind="ablesung">+ Ablesung</button>
-    <button class="linkbtn" data-add="heating-stock" data-kind="lieferung">+ Lieferung</button></div>`);
+  box.insertAdjacentHTML("beforeend", `<div class="row"><button class="linkbtn" data-add="heating-stock" data-kind="ablesung">${__("+ Reading")}</button>
+    <button class="linkbtn" data-add="heating-stock" data-kind="lieferung">${__("+ Delivery")}</button></div>`);
 }
 
 // ------------------------------------------------------------ Projekte

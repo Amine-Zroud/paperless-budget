@@ -378,7 +378,7 @@ $("#expBody").addEventListener("change", async (e) => {
     const upd = await api(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify(body) });
     Object.assign(doc, upd);
     if (upd.amount == null) expDocs = expDocs.filter((d) => d.id !== id);
-    drawExpenses(); toast("In Paperless gespeichert");
+    drawExpenses(); toast(__("Saved to Paperless"));
   } catch (err) { toast(err.message, true); }
 });
 
@@ -388,7 +388,7 @@ async function renderReview() {
   if (!S.meta.amount_field) { list.innerHTML = `<div class="empty">${__("Create the amount field first (Overview).")}</div>`; return; }
   const st = S.settings;
   const parts = [];
-  if (st.review_document_type_ids.length) parts.push("Typ: " + st.review_document_type_ids.map(typeName).join(", "));
+  if (st.review_document_type_ids.length) parts.push(__("Type: ") + st.review_document_type_ids.map(typeName).join(", "));
   if (st.review_tag_ids.length) parts.push("Tag: " + st.review_tag_ids.map(tagName).join(", "));
   $("#reviewInfo").innerHTML = __("Documents from {month} without “{name}”", {month: esc(monthLabel(S.month)), name: esc(S.meta.amount_field.name)}) + (parts.length ? ` · ${esc(parts.join(" · "))}` : ` ${__("· all document types (limit under")} <a href="#" data-goto="settings">${__("Settings")}</a>)`);
   const docs = await api(`/api/review?month=${S.month}`);
@@ -431,7 +431,7 @@ $("#reviewList").addEventListener("click", async (e) => {
   e.target.disabled = true;
   try {
     await api(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify({ amount: Number(amount), category_tag_id: cat ? Number(cat) : null }) });
-    card.remove(); toast("In Paperless gespeichert"); updateReviewBadge();
+    card.remove(); toast(__("Saved to Paperless")); updateReviewBadge();
     if (!$("#reviewList").children.length) renderReview();
   } catch (err) { e.target.disabled = false; toast(err.message, true); }
 });
@@ -476,12 +476,12 @@ async function drawPayslips() {
   const d = await api(`/api/payslips?year=${year}`);
   const k = (label, v) => v ? `<div><span class="muted small">${label}</span><b class="num">${fmt(v)}</b></div>` : "";
   $("#psTotals").innerHTML = d.totals.map((p) => `<div class="ps-card"><div class="ps-head"><b>${esc(p.person)}</b> <span class="muted small">${__("{join} · {count} payslip(s) {year}", {join: esc(p.employers.join(", ")), count: p.count, year})}</span></div>
-      <div class="ps-grid">${k(__("Gross"), p.gross)}${k("davon 13. ML / Bonus", p.extras)}${k("davon Kinderzulagen", p.child_allowance)}${k("AHV/IV/EO", p.ahv)}${k("ALV", p.alv)}${k(__("Pension fund"), p.bvg)}
-      ${k(__("Insurance"), p.insurance)}${k(__("Withholding tax"), p.tax)}${k(__("other deductions"), p.other)}${k(__("Net"), p.net)}${k(__("paid out"), p.payout)}</div></div>`).join("");
+      <div class="ps-grid">${k(__("Gross"), p.gross)}${k(__("of which 13th month / bonus"), p.extras)}${k(__("of which child allowances"), p.child_allowance)}${k(__("Social security (ONSS)"), p.onss)}${k("AHV/IV/EO", p.ahv)}${k("ALV", p.alv)}${k(__("Pension fund"), p.bvg)}
+      ${k(__("Insurance"), p.insurance)}${k(__("Withholding tax"), p.tax)}${k(__("other deductions"), p.other)}${k(__("Net"), p.net)}${k(__("paid out"), p.payout)}${k(__("Eco-cheques (not paid out)"), p.vouchers)}</div></div>`).join("");
   $("#psBody").innerHTML = d.payslips.length ? d.payslips.map((r) => r.ok ? `<tr>
       <td>${esc(r.month || "")}</td>
       <td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.person || "–")}</a> <span class="muted small">· ${esc(r.employer || "")}</span>
-        ${r.extras.map((x) => `<span class="pill" title="${esc(x.label)}">${x.kind === "13" ? __("13th-month pay") : __("Bonus")} ${fmt(x.amount)}</span>`).join(" ")}
+        ${r.extras.map((x) => `<span class="pill${x.kind === "voucher" ? " grey" : ""}" title="${esc(x.label)}">${esc(x.kind === "voucher" ? __("Eco-cheques") : (x.label || (x.kind === "13" ? __("13th-month pay") : __("Bonus"))).slice(0, 40))} ${fmt(x.amount)}</span>`).join(" ")}
         ${r.deductions.length ? `<div class="it-sub" title="${esc(r.deductions.map((x) => `${x.label}: ${x.amount.toFixed(2)}`).join("\n"))}">${esc(r.deductions.map((x) => x.label).slice(0, 4).join(", "))}${r.deductions.length > 4 ? " …" : ""}</div>` : ""}</td>
       <td class="num">${fmt(r.gross)}</td><td class="num">${r.deductions_total ? "− " + fmtPos(r.deductions_total) : "–"}</td><td class="num">${fmt(r.net || 0)}</td>
       <td class="num"><b>${fmt(r.payout)}</b></td>
@@ -520,8 +520,8 @@ async function drawIncomeRules() {
   $("#irCredits").innerHTML = credits.length ? credits.map((t) => `<div class="invitem"><span>${fmtDate(t.date)} · <b>${esc(t.merchant || t.text.slice(0, 50))}</b>
       <span class="muted small">${esc(t.text.slice(0, 70))}</span></span>
       <span class="row"><b class="num">${fmt(t.amount)}</b>${t.rule ? `<span class="pill">💰 ${esc(t.rule)}</span>` : t.rent ? `<span class="pill grey">${__("Rent")}</span>`
-        : t.status === "ignored" ? `<span class="pill grey">ignoriert</span>` : `<button class="linkbtn" data-irnew="${esc(t.merchant || t.text.split(" · ")[0] || "")}" data-amt="${t.amount}" data-day="${Number(t.date.slice(8))}">als Einnahme erkennen</button>`}</span></div>`).join("")
-    : `<div class="muted small">${__("No credits in {month} – bank statements under", {month: esc(monthLabel(S.month))})} <a href="#" data-goto="bank">${__("Reconcile")}</a> einlesen.</div>`;
+        : t.status === "ignored" ? `<span class="pill grey">ignoriert</span>` : `<button class="linkbtn" data-irnew="${esc(t.merchant || t.text.split(" · ")[0] || "")}" data-amt="${t.amount}" data-day="${Number(t.date.slice(8))}">${__("detect as income")}</button>`}</span></div>`).join("")
+    : `<div class="muted small">${__("No credits in {month} – import bank statements under", {month: esc(monthLabel(S.month))})} <a href="#" data-goto="bank">${__("Reconcile")}</a>.</div>`;
 }
 async function saveIncomeRule(tr) {
   const q = (n) => tr.querySelector(`[name=${n}]`);
@@ -542,10 +542,10 @@ $("#irAdd").onclick = async () => {
 };
 $("#irCredits").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-irnew]"); if (!b) return;
-  const r = await openDialog({ title: "Als Einnahme erkennen", sub: __("All credits containing this keyword will count as income from now on."),
+  const r = await openDialog({ title: __("Detect as income"), sub: __("All credits containing this keyword will count as income from now on."),
     label: __("Keyword"), value: b.dataset.irnew, ok: __("Continue") });
   if (!r || !r.value) return;
-  const l = await openDialog({ title: __("Label"), label: "z.B. Lohn Peter, Kindergeld, AHV", value: __("Salary"), ok: __("Create") });
+  const l = await openDialog({ title: __("Label"), label: __("e.g. Salary Peter, child benefit, pension"), value: __("Salary"), ok: __("Create") });
   if (!l) return;
   await api("/api/income-rules", { method: "POST", body: JSON.stringify({ keyword: r.value, label: l.value || __("Salary"),
     expected: Number(b.dataset.amt), day: Number(b.dataset.day) }) });
@@ -636,12 +636,12 @@ function txRow(t) {
   } else if (k === "ignored") {
     act = `<span class="pill grey">ignoriert</span><button class="linkbtn" data-act="unignore">${__("restore")}</button>`;
   } else if (k === "credit") {
-    act = `<span class="pill grey">${t.rent ? __("Rent payment") : t.income ? "💰 " + esc(t.income) : __("Credit")}</span><button class="linkbtn" data-act="ignore">ignorieren</button><button class="linkbtn" data-act="flip">${__("± sign")}</button>`;
+    act = `<span class="pill grey">${t.rent ? __("Rent payment") : t.income ? "💰 " + esc(t.income) : __("Credit")}</span><button class="linkbtn" data-act="ignore">${__("ignore")}</button><button class="linkbtn" data-act="flip">${__("± sign")}</button>`;
   } else {
     if (t.candidates.length) {
       const opts = t.candidates.map((c) => `<option value="${c.id}">${esc(c.title)} · ${fmtDate(c.date)}${c.correspondent ? " · " + esc(corrName(c.correspondent)) : ""}${c.excluded ? (" " + __("(not in budget)")) : ""}</option>`).join("");
       act = `<select class="cand">${opts}</select><button class="primary" data-act="match">${__("Assign")}</button>`;
-      if (t.unique) act = `<span class="pill warn" title="eindeutiger Treffer">${__("Suggestion")}</span>` + act;
+      if (t.unique) act = `<span class="pill warn" title="${__("unambiguous match")}">${__("Suggestion")}</span>` + act;
     }
     act += `<select class="txcat" title="${__("Category (counts as an expense without receipt)")}">${categoryOptions(t.category_tag_id).replace(__("– none –"), __("Category …"))}</select>
       ${S.vehicles.length ? `<select class="txveh" title="${__("Vehicle (counts towards its costs)")}">${vehicleOptions(t.vehicle_id)}</select>` : ""}
@@ -713,7 +713,7 @@ $("#bkMatchUnique").onclick = async (e) => {
 function drawStatements(list) {
   $("#stList").innerHTML = list.length ? list.slice(0, 24).map((s) => `<div class="stitem" data-id="${s.id}">
       <div><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a><div class="muted small">${fmtDate(s.date)} · ${s.parsed_at ? __("{tx_count} transactions imported", {tx_count: s.tx_count}) : __("not imported yet")}</div></div>
-      <button data-parse="${s.id}" ${s.parsed_at ? "" : 'class="primary"'}>${s.parsed_at ? "Neu einlesen" : __("Import")}</button>
+      <button data-parse="${s.id}" ${s.parsed_at ? "" : 'class="primary"'}>${s.parsed_at ? __("Import again") : __("Import")}</button>
     </div>`).join("") : `<div class="empty">${__("No bank statements found (check the document type/tag in Settings).")}</div>`;
 }
 $("#stList").addEventListener("click", async (e) => {
@@ -844,7 +844,7 @@ function vehCard(v, entries) {
       ${kpi(__("Fuel / km"), v.fuel_per_km == null ? "–" : fmt(v.fuel_per_km))}
       ${kpi(__("Consumption"), v.consumption == null ? "–" : `${fmtN(v.consumption, 1)} <small>${unit}/100 km</small>`,
         v.consumption == null ? __("{quantity} {unit} refuelled", {quantity: fmtN(v.quantity, 1), unit}) : __("from {consumption_months} month(s){consumption_complete}", {consumption_months: v.consumption_months, consumption_complete: v.consumption_complete ? "" : (" " + __("· incomplete"))}))}
-      ${kpi(__("Price / {unit}", {unit}), v.price_per_unit == null ? "–" : fmt(v.price_per_unit), "nach Rabatt")}
+      ${kpi(__("Price / {unit}", {unit}), v.price_per_unit == null ? "–" : fmt(v.price_per_unit), __("after discount"))}
     </div>
     <div class="veh-body">
       <div class="chartbox"><canvas id="veh${v.id}"></canvas></div>
@@ -901,7 +901,7 @@ function drawFuelDocs(list) {
     ? `<div class="muted small">${__("Under")} <a href="#" data-goto="settings">${__("Settings → Vehicles")}</a> ${__("choose the correspondent of the fuel card invoices (e.g. Vögtlin-Meyer).")}</div>`
     : list.length ? list.slice(0, 24).map((d) => `<div class="stitem">
         <div><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a><div class="muted small">${fmtDate(d.date)} · ${d.parsed_at ? __("{entries} refuellings", {entries: d.entries}) : __("not imported yet")}</div></div>
-        <button data-fparse="${d.id}" ${d.parsed_at ? "" : 'class="primary"'}>${d.parsed_at ? "Neu einlesen" : __("Import")}</button></div>`).join("")
+        <button data-fparse="${d.id}" ${d.parsed_at ? "" : 'class="primary"'}>${d.parsed_at ? __("Import again") : __("Import")}</button></div>`).join("")
     : `<div class="empty">${__("No fuel card invoices found.")}</div>`;
 }
 function drawParking(list, unassigned) {
@@ -910,10 +910,10 @@ function drawParking(list, unassigned) {
     ? `<div class="muted small">${__("Under")} <a href="#" data-gosettings="vehicles">${__("Settings → Vehicles")}</a> ${__("choose the correspondent of the Parkingpay statements and enter the licence plates on the vehicles.")}</div>`
     : list.length ? list.slice(0, 24).map((d) => `<div class="stitem">
         <div><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a><div class="muted small">${fmtDate(d.date)} · ${d.parsed_at ? __("{entries} parking sessions", {entries: d.entries}) : __("not imported yet")}</div></div>
-        <button data-pparse="${d.id}" ${d.parsed_at ? "" : 'class="primary"'}>${d.parsed_at ? "Neu einlesen" : __("Import")}</button></div>`).join("")
+        <button data-pparse="${d.id}" ${d.parsed_at ? "" : 'class="primary"'}>${d.parsed_at ? __("Import again") : __("Import")}</button></div>`).join("")
     : `<div class="empty">${__("No Parkingpay statements found.")}</div>`;
   $("#parkUnassigned").innerHTML = unassigned.length ? unassigned.map((e) => `<div class="invitem" data-pe="${e.id}">
-      <span>${fmtDate(e.date)}${e.time ? " " + esc(e.time) : ""} · <b>${esc(e.plate || "ohne Kennzeichen")}</b>${e.driver ? ` (${esc(e.driver)})` : ""} <span class="muted small">${esc(e.location || "")}</span></span>
+      <span>${fmtDate(e.date)}${e.time ? " " + esc(e.time) : ""} · <b>${esc(e.plate || __("no licence plate"))}</b>${e.driver ? ` (${esc(e.driver)})` : ""} <span class="muted small">${esc(e.location || "")}</span></span>
       <span class="row"><b class="num">${fmt(e.amount)}</b><select class="pe-veh">${vehicleOptions(null, __("Vehicle …"))}</select></span></div>`).join("")
     : `<div class="muted small">${__("All parking sessions are assigned to a vehicle.")}</div>`;
 }

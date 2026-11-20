@@ -1,5 +1,6 @@
 """Read payslips: month, person, gross salary, deductions, net salary, paid-out amount.
 
+Belgian (French) payslips are read by payslip_be.py; this module dispatches to it.
 Swiss payslips are structured very differently (employer's payroll software, often scanned).
 The reader therefore works line by line via keywords:
   Bruttolohn …  7'400.00      AHV-Beitrag … -371.00      Nettolohn … 6'800.00      Ausbezahlter Lohn … 6'800.00
@@ -50,7 +51,8 @@ class Payslip:
 
     @property
     def ok(self) -> bool:
-        return bool(self.gross and (self.net or self.payout))
+        # a voucher-only payslip (eco-cheques) has no payout but is still recognised
+        return bool(self.gross and (self.net or self.payout)) or any(x.get("kind") == "voucher" for x in self.extras)
 
 
 def _num(s: str) -> float:
@@ -70,6 +72,12 @@ def _label(line: str) -> str:
 
 
 def parse_payslip(text: str) -> Payslip:
+    """Swiss German payslips (below); Belgian French ones are handled by payslip_be."""
+    from . import payslip_be            # late import: payslip_be needs the Payslip class above
+    if payslip_be.looks_belgian(text):
+        be = payslip_be.parse(text)
+        if be.ok:
+            return be
     lines = [l.rstrip() for l in (text or "").splitlines()]
     nonempty = [l.strip() for l in lines if l.strip()]
     month = None

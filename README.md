@@ -221,6 +221,38 @@ expense either. For bank transactions without a receipt the checkbox corresponds
 Tip: a Paperless **workflow** can assign the amount field (empty) to new invoices automatically and
 matching rules can set the category tags – then you only have to type in the amount in the app.
 
+## Belgian payslips ("Billet de paie")
+
+The app reads French-language Belgian payslips of social secretariats (one payslip per PDF page) and shows what you
+actually received each month:
+
+- **Paid out** = `*** Net à payer` of every payslip of the pay period. Several payslips in one month are added up
+  (salary + "Bonus salarial", holiday pay "pécule de vacances", annual "prime" …).
+- Also read: period, person, gross (`Total brut soumis ONSS`), net, withholding tax (`Précompte professionnel`), social
+  security (`Retenue ONSS personnelle`, `Cotisation spéciale sécurité sociale`), meal vouchers, special payments.
+- **Eco-cheques** (no `Net à payer`) are shown as a voucher item and are *not* counted as money received.
+- Numbers use Belgian notation (`1.234,56`). PDFs whose text layer has a broken font encoding (`Þ` for spaces, `º` for
+  é …) are repaired automatically.
+
+### Paperless setup for payslips
+
+1. Create a **document type** "Payslip" and (optionally) a **tag** "Payslips" and one **correspondent** per employer.
+2. Create a **workflow** so that uploads are classified automatically:
+   *Trigger* "Consumption started", filename filter `*Billet_de_paie*` → *Action* assign document type "Payslip" and the
+   tag "Payslips". (Filename-based on purpose: matching on content does not work when the text layer is garbled.) A second
+   workflow with the filter `*Billet_de_paie_<EMPLOYER>*` can assign the correspondent.
+3. In the app: *Settings → Planned items & salary* → choose the document type "Payslip" (and/or the tag) under
+   *Recognise payslips*. Documents with "Billet de paie", "fiche de paie", "Lohnabrechnung", "loonbrief" or "payslip" in
+   the title are found even without this.
+4. Open the **Income** tab (it imports new payslips automatically) or press *Import new*.
+
+Paperless OCR needs no change: the app reads the text Paperless stored and, for Belgian payslips, also the original PDF
+(`pdftotext -layout`), and uses the more complete result. Optional, for clean searchable text inside Paperless:
+`PAPERLESS_OCR_MODE=force` and `PAPERLESS_OCR_LANGUAGE=fra+nld+eng` on the Paperless server.
+
+Payslips are never counted as expenses. The income of a month comes from the payslips, or from the matching bank credit
+once you import bank statements.
+
 ## Reconciling bank statements
 
 1. Store bank statements as PDF in Paperless, e.g. with document type *Bank statement*.
@@ -441,7 +473,8 @@ app/i18n.py          Backend translations (English source, German) and request l
 app/bank.py          Bank statement reader and reconciliation logic
 app/vehicles.py      Read fuel card invoices, vehicle key figures
 app/parking.py       Read Parkingpay statements (parking sessions with licence plates)
-app/payslip.py       Read payslips (gross, deductions, net, payout)
+app/payslip.py       Read payslips (gross, deductions, net, payout); Swiss German format, dispatches to payslip_be
+app/payslip_be.py    Read Belgian French payslips ("Billet de paie", Net à payer, multi-page documents)
 app/purpose.py       Read the purpose from the invoice text
 app/realestate.py    Calculate utility costs, generate the statement as Word
 app/re_api.py        API for properties, rents, projects and assignments
@@ -456,6 +489,16 @@ app/static/i18n.js   Frontend translation helper (__(), applyI18n); texts in app
 
 The Paperless token stays in the backend, the browser only talks to the app.
 The API is documented at `/docs` (Swagger UI).
+
+### Tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest tests/
+```
+
+The payslip tests use synthetic documents. If you keep real payslips as text files in `tests/private_fixtures/` (git-ignored,
+with an `expected.json` of `{file: payout}`), they are checked too.
 
 ### Developing locally
 

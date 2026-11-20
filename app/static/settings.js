@@ -102,7 +102,7 @@ $("#setStatus").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-create]");
   if (b) {
     b.disabled = true;
-    try { S.meta = await api("/api/setup/create", { method: "POST", body: JSON.stringify({ kind: b.dataset.create, name: b.dataset.name }) }); toast("In Paperless angelegt"); await setStatus(); }
+    try { S.meta = await api("/api/setup/create", { method: "POST", body: JSON.stringify({ kind: b.dataset.create, name: b.dataset.name }) }); toast(__("Created in Paperless")); await setStatus(); }
     catch (err) { toast(err.message, true); b.disabled = false; }
   }
   if (e.target.closest("[data-backup]")) setTimeout(() => { SET.status = null; }, 500);
@@ -224,18 +224,18 @@ function drawVehicleCards() {
     const devOpts = [...devs.map((d) => [d.id, d.name])];
     if (v.traccar_device_id && !dev) devOpts.push([v.traccar_device_id, __("Device {traccar_device_id}", {traccar_device_id: v.traccar_device_id})]);
     return `<details class="vcard" data-vid="${v.id}" ${SET.openVeh.has(v.id) ? "open" : ""}>
-      <summary><span><b>${v.energy === "Elektro" ? "🔌" : "🚗"} ${esc(v.name)}</b> <span class="muted small">${esc(v.energy)}${v.traccar_device_id ? ` · Traccar: ${esc(devName(v.traccar_device_id) || (__("Device") + " ") + v.traccar_device_id)}` : ""} · ${v.km_source === "gps" ? "km aus GPS" : __("Traccar report")}${v.plates ? " · " + esc(v.plates) : ""}${v.active ? "" : (" " + __("· inactive"))}</span></span></summary>
+      <summary><span><b>${v.energy === "Elektro" ? "🔌" : "🚗"} ${esc(v.name)}</b> <span class="muted small">${esc(v.energy)}${v.traccar_device_id ? ` · Traccar: ${esc(devName(v.traccar_device_id) || (__("Device") + " ") + v.traccar_device_id)}` : ""} · ${v.km_source === "gps" ? __("km from GPS") : __("Traccar report")}${v.plates ? " · " + esc(v.plates) : ""}${v.active ? "" : (" " + __("· inactive"))}</span></span></summary>
       <div class="vb">
         <div class="field"><div class="lbl"><b>${__("Name / drive")}</b></div><div class="row"><input name="name" value="${esc(v.name)}"><select name="energy">${selOpts(ENERGIES.map((x) => [x, x]), v.energy)}</select></div></div>
         <div class="field"><div class="lbl"><b>${__("Traccar device")}</b><span>${dev?.last_update ? __("last report {last_update}", {last_update: relTime(dev.last_update)}) : S.tcError ? esc(S.tcError) : ""}</span></div><div><select name="traccar_device_id">${selOpts(devOpts, v.traccar_device_id, __("– no device –"))}</select></div></div>
-        <div class="field"><div class="lbl"><b>${__("Kilometres")}</b><span>${__("GPS helps if the device's odometer is wrong")}</span></div><div><select name="km_source">${selOpts([["report", __("Traccar report")], ["gps", "aus GPS berechnen"]], v.km_source || "report")}</select></div></div>
+        <div class="field"><div class="lbl"><b>${__("Kilometres")}</b><span>${__("GPS helps if the device's odometer is wrong")}</span></div><div><select name="km_source">${selOpts([["report", __("Traccar report")], ["gps", __("calculate from GPS")]], v.km_source || "report")}</select></div></div>
         <div class="field"><div class="lbl"><b>${__("Paperless tag")}</b><span>${__("Service, insurance, repairs …")}</span></div><div><select name="tag_id">${selOpts(S.meta.tags.map((t) => [t.id, t.name]), v.tag_id, __("– no tag –"))}</select></div></div>
         <div class="field"><div class="lbl"><b>${__("Fuel cards")}</b><span>${__("Last digits are enough, several separated by commas")}</span></div><div><input name="card_keys" value="${esc(v.card_keys || "")}" placeholder="z.B. 4321, 8765"></div></div>
-        <div class="field"><div class="lbl"><b>${__("Licence plate / badge no.")}</b><span>${__("for Parkingpay; several separated by commas – also the Parkingpay badge no. for car parks")}</span></div><div><input name="plates" value="${esc(v.plates || "")}" placeholder="z.B. AG 123456, 118200000000"></div></div>
+        <div class="field"><div class="lbl"><b>${__("Licence plate / badge no.")}</b><span>${__("for Parkingpay; several separated by commas – also the Parkingpay badge no. for car parks")}</span></div><div><input name="plates" value="${esc(v.plates || "")}" placeholder="${__("e.g. AG 123456, 118200000000")}"></div></div>
         <div class="row" style="justify-content:space-between;margin-top:8px"><label class="check small"><input type="checkbox" name="active" ${v.active ? "checked" : ""}> ${__("active")}</label><button class="linkbtn danger" data-vdel>${__("Delete vehicle")}</button></div>
       </div></details>`;
   };
-  $("#vehSettings").innerHTML = (S.tcError && !devs.length ? `<div class="alert" style="margin:8px 0">Traccar: ${esc(S.tcError)} <button class="linkbtn" id="tcRetry">erneut versuchen</button></div>` : "")
+  $("#vehSettings").innerHTML = (S.tcError && !devs.length ? `<div class="alert" style="margin:8px 0">Traccar: ${esc(S.tcError)} <button class="linkbtn" id="tcRetry">${__("try again")}</button></div>` : "")
     + (S.vehicles.map(card).join("") || `<div class="empty">${__("No vehicle yet.")}</div>`);
 }
 $("#vehSettings").addEventListener("toggle", (e) => {
@@ -330,9 +330,9 @@ async function setUsers() {
   const me = S.me || {};
   if (!me.users_enabled) {
     $("#setUsers").innerHTML = `<div class="card"><h3>${__("Enable user management")}</h3>
-      <p class="muted small">${__("At the moment the app is open without sign-in. First create")} <b>deinen eigenen Zugang als Administrator</b> ${__("– afterwards everyone signs in with username and password, and you can add more users with restricted permissions.")}</p>
+      <p class="muted small">${__("At the moment the app is open without sign-in. First create")} <b>${__("your own account as administrator")}</b> ${__("– afterwards everyone signs in with username and password, and you can add more users with restricted permissions.")}</p>
       <form id="firstAdmin" class="form" style="max-width:420px">
-        <label>Name<input name="name" placeholder="z.B. Peter" required></label>
+        <label>Name<input name="name" placeholder="${__("e.g. Peter")}" required></label>
         <label>${__("Username")}<input name="username" autocomplete="username" required></label>
         <label>${__("Password (min. 8 characters)")}<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
         <label>${__("Repeat password")}<input name="password2" type="password" autocomplete="new-password" minlength="8" required></label>
@@ -350,7 +350,7 @@ async function setUsers() {
   const users = await api("/api/users");
   const areas = me.areas || [];
   const sel = (u, a) => `<select data-perm="${a}" ${u.is_admin ? "disabled" : ""}>${LVL.map(([k, l]) => `<option value="${k}" ${(u.is_admin ? "edit" : (u.perms || {})[a] || "none") === k ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-  $("#setUsers").innerHTML = `<div class="card"><div class="cardhead"><h3>${__("Users & permissions")}</h3><button id="userAdd">+ Benutzer</button></div>
+  $("#setUsers").innerHTML = `<div class="card"><div class="cardhead"><h3>${__("Users & permissions")}</h3><button id="userAdd">${__("+ User")}</button></div>
     <p class="muted small">${__("Per area:")} <b>–</b> ${__("= not visible,")} <b>${__("view")}</b> ${__("= read only,")} <b>${__("edit")}</b> ${__("= edit. Administrators may do everything, including settings, users and backup. The server checks permissions on every request. Without permission for “Income &amp; salary”, income is also hidden on the overview.")}</p>
     <div class="tablewrap"><table class="etable users"><thead><tr><th>Name</th><th>${__("Users")}</th><th>Admin</th>${areas.map(([, l]) => `<th style="min-width:110px">${esc(l.split(" (")[0])}</th>`).join("")}<th>${__("active")}</th><th></th></tr></thead>
     <tbody>${users.map((u) => `<tr data-uid="${u.id}">

@@ -55,7 +55,7 @@ async function drawContract() {
     ...(loan ? [fact(__("Outstanding balance"), c.balance != null ? fmt(c.balance) : "–"), fact(__("Interest / year"), `${fmt(c.interest_year)} <span class="muted small">${c.interest_rate || 0} %</span>`),
       fact(__("Repayment / year"), fmt(c.amortization_year))] : []),
     fact(__("Next payment"), c.next_due ? fmtDate(c.next_due) : "–"),
-    fact(__("Term until"), c.term_end ? fmtDate(c.term_end) : "unbefristet"),
+    fact(__("Term until"), c.term_end ? fmtDate(c.term_end) : __("open-ended")),
     fact(__("Cancel by"), c.notice_by ? `${fmtDate(c.notice_by)}${c.notice_days != null && c.notice_days >= 0 ? ` <span class="muted small">(${c.notice_days} T.)</span>` : ""}` : "–"),
     fact(__("Paid {getFullYear}", {getFullYear: new Date().getFullYear()}), `${fmt(c.paid_ytd)} <span class="muted small">${__("/ exp. {expected_ytd}", {expected_ytd: fmt(c.expected_ytd)})}</span>`),
   ].join("");

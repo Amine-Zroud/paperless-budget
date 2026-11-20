@@ -10,3 +10,9 @@ __pycache__/
 
 # Lokale Anpassungen (z.B. Docker-Netzwerk) – werden von Updates nicht überschrieben
 docker-compose.override.yml
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# real payslips turned into test fixtures (personal data) – local only
+tests/private_fixtures/

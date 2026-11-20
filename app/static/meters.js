@@ -2,7 +2,7 @@
 /* Meters: reading, consumption since the start of the period, projection and expected statement minus advance payments */
 
 const MT = { data: null, open: new Set() };
-const MT_SRC = { ams: "AMS-Leser", http: "HTTP-JSON (z.B. Shelly)", homeassistant: "Home Assistant", manuell: __("manual") };
+const MT_SRC = { ams: __("AMS reader"), http: __("HTTP-JSON (e.g. Shelly)"), homeassistant: "Home Assistant", manuell: __("manual") };
 const MT_KIND = { strom: __("Electricity"), wasser: __("Water"), gas: "Gas", waerme: __("Heat") };
 const mtNum = (v, d = 1) => (v == null ? "–" : new Intl.NumberFormat(LOCALE, { maximumFractionDigits: d }).format(v));
 
@@ -46,7 +46,7 @@ function meterCard(m) {
       <div><div class="l">${__("Period")}</div><div class="v">${fmtDate(p.period[0])} – ${fmtDate(p.period[1])}</div><div class="bar"><div style="width:${Math.round(p.progress * 100)}%"></div></div></div>
       <div><div class="l">${__("Consumption so far")}</div><div class="v">${mtNum(p.so_far)} ${u}</div><div class="muted small">${__("since {slice} · {daily} {u2}/day", {slice: fmtDate(p.start_ts.slice(0, 10)), daily: mtNum(p.daily, 2), u2: u})}</div></div>
       <div><div class="l">${__("Projection for period")}</div><div class="v">${mtNum(p.total, 0)} ${u}</div><div class="muted small">${esc(p.method)}</div></div>
-      <div><div class="l">${__("Invoice approx.")}</div><div class="v">${p.cost == null ? "–" : fmt(p.cost)}</div><div class="muted small">${m.tariff != null ? `${mtNum(m.tariff, 4)} CHF/${u}${m.base_fee ? ` ${__("+ {base_fee}/mo.", {base_fee: fmt(m.base_fee)})}` : ""}` : __("Tariff missing (Settings)")}</div></div>
+      <div><div class="l">${__("Invoice approx.")}</div><div class="v">${p.cost == null ? "–" : fmt(p.cost)}</div><div class="muted small">${m.tariff != null ? `${mtNum(m.tariff, 4)} ${S.meta?.currency || "EUR"}/${u}${m.base_fee ? ` ${__("+ {base_fee}/mo.", {base_fee: fmt(m.base_fee)})}` : ""}` : __("Tariff missing (Settings)")}</div></div>
       <div><div class="l">${__("Advance payment")}</div><div class="v">${a ? fmt(a.total) : "–"}</div><div class="muted small">${a ? __("paid {paid} ({payments}) + still {remaining} ({remaining_count})", {paid: fmt(a.paid), payments: a.payments, remaining: fmt(a.remaining), remaining_count: a.remaining_count}) : __("Choose advance-payment contract (Settings)")}</div></div>
       <div>${balance || `<div class="l">${__("Balance")}</div><div class="v">–</div><div class="muted small">${a ? "" : __("no advance payments – consumption only")}</div>`}</div>
     </div><div class="chartbox small"><canvas id="mt${m.id}"></canvas></div>`;
@@ -56,16 +56,16 @@ function meterCard(m) {
     ${f(__("Name / type"), "", `<div class="row"><input name="name" value="${esc(m.name)}"><select name="kind">${opt(Object.entries(MT_KIND), m.kind)}</select><input name="unit" value="${u}" style="width:80px" placeholder="${__("Unit")}"></div>`)}
     ${f(__("Source"), "", `<select name="source">${opt(Object.entries(MT_SRC), m.source)}</select>`)}
     ${m.source === "homeassistant" ? f("Sensor in Home Assistant", MT.data.ha_configured ? __("Entity ID, meter reading (not an instantaneous value)") : __("HOMEASSISTANT_URL and _TOKEN are missing in .env"), `<input name="ha_entity" value="${esc(m.ha_entity || "")}" placeholder="sensor.ams_energie_bezug">`) : ""}
-    ${["ams", "http"].includes(m.source) ? f(__("Address"), m.source === "ams" ? __("IP or name of the AMS reader – /data.json is read") : "URL, die JSON liefert", `<input name="url" value="${esc(m.url || "")}" placeholder="${m.source === "ams" ? "192.168.1.50" : "http://192.168.1.60/rpc/Input.GetStatus?id=2"}" style="width:100%">`)
-      + f("JSON-Feld / Faktor", m.source === "ams" ? __("“ic” = cumulative import in kWh") : __("e.g. counts.total; factor 0.001 = litre pulses → m³"), `<div class="row"><input name="json_path" value="${esc(m.json_path || (m.source === "ams" ? "ic" : ""))}" placeholder="ic"><input name="factor" type="number" step="any" value="${m.factor ?? 1}" style="width:110px" title="${__("Factor")}"></div>`) : ""}
+    ${["ams", "http"].includes(m.source) ? f(__("Address"), m.source === "ams" ? __("IP or name of the AMS reader – /data.json is read") : __("URL that returns JSON"), `<input name="url" value="${esc(m.url || "")}" placeholder="${m.source === "ams" ? "192.168.1.50" : "http://192.168.1.60/rpc/Input.GetStatus?id=2"}" style="width:100%">`)
+      + f(__("JSON field / factor"), m.source === "ams" ? __("“ic” = cumulative import in kWh") : __("e.g. counts.total; factor 0.001 = litre pulses → m³"), `<div class="row"><input name="json_path" value="${esc(m.json_path || (m.source === "ams" ? "ic" : ""))}" placeholder="ic"><input name="factor" type="number" step="any" value="${m.factor ?? 1}" style="width:110px" title="${__("Factor")}"></div>`) : ""}
     ${f(__("Tariff"), __("Price per unit incl. VAT (all components) and base fee per month"), `<div class="row"><input name="tariff" type="number" step="0.0001" value="${m.tariff ?? ""}" placeholder="${__("e.g. 0.2950")}" style="width:130px"><input name="base_fee" type="number" step="0.05" value="${m.base_fee ?? ""}" placeholder="${__("Base fee/mo.")}" style="width:130px"></div>`)}
-    ${f(__("Billing period"), "beginnt im", `<select name="period_start_month">${opt(months, m.period_start_month)}</select>`)}
+    ${f(__("Billing period"), __("starts in"), `<select name="period_start_month">${opt(months, m.period_start_month)}</select>`)}
     ${f(__("Reading of the last invoice"), __("Start value of the period – otherwise the first reading counts"), `<div class="row"><input name="start_reading" type="number" step="any" value="${m.start_reading ?? ""}" placeholder="${__("Meter reading")}" style="width:140px"><input name="start_date" type="date" value="${esc(m.start_date || "")}"></div>`)}
     ${f(__("Assignment"), __("Building = general (e.g. common electricity), otherwise the flat"), `<select name="assign">${opt([["", __("– none –")],
       ...MT.data.properties.flatMap((x) => [[`${x.id}:`, __("{name} – building (general)", {name: x.name})],
         ...MT.data.units.filter((u) => u.property_id === x.id).map((u) => [`${x.id}:${u.id}`, __("{name} – flat {name2}", {name: x.name, name2: u.name})])])],
       m.property_id ? `${m.property_id}:${m.unit_id ?? ""}` : "")}</select>`)}
-    ${m.property_id && !m.unit_id ? f("In der NK anzeigen bei", __("expected costs in brackets after this category (empty: category with “Strom” in its name)"),
+    ${m.property_id && !m.unit_id ? f(__("Show in utility statement at"), __("expected costs in brackets after this category (empty: category with “Strom” in its name)"),
       `<select name="nk_category_id">${opt([["", __("– automatic –")], ...MT.data.nk_categories.filter((c) => c.property_id === m.property_id).map((c) => [c.id, `${c.grp} · ${c.name}`])], m.nk_category_id)}</select>`) : ""}
     ${f(__("Advance-payment contract"), __("Contract with the advance payments (record under Contracts, set the bank transaction keyword)"), `<select name="contract_id">${opt(ctOpts, m.contract_id)}</select>`)}
     <div class="row" style="justify-content:space-between;margin-top:8px"><label class="check small"><input type="checkbox" name="active" ${m.active ? "checked" : ""}> ${__("active")}</label>
@@ -77,7 +77,7 @@ function meterCard(m) {
 function mtProp(m) {
   const pr = MT.data.properties.find((x) => x.id === m.property_id);
   const u = MT.data.units.find((x) => x.id === m.unit_id);
-  return pr ? ` · <span class="pill">${esc(pr.name)} · ${u ? __("Flat ") + esc(u.name) : "allgemein"}</span>` : "";
+  return pr ? ` · <span class="pill">${esc(pr.name)} · ${u ? __("Flat ") + esc(u.name) : __("general")}</span>` : "";
 }
 
 function drawMeterChart(m) {

@@ -34,7 +34,7 @@ async function renderAbos() {
       <td class="row"><a href="#" data-abdetail="${c.id}">Details</a><button class="linkbtn danger" data-abdel="${c.id}">${__("delete")}</button></td></tr>`).join("")
     : `<tr><td colspan="9" class="muted small">${__("No subscriptions yet – adopt a suggestion below or “+ Subscription”.")}</td></tr>`;
   $("#aboSuggest").innerHTML = AB.sugg.length ? AB.sugg.map((s, i) => `<div class="invitem" data-i="${i}">
-      <span><b>${esc(s.name)}</b> <span class="muted small">${__("{interval} · last {last}{next}", {interval: s.certain ? `${s.count}× ${esc(AB_IV[s.interval] || s.interval)}` : "bekannter Abo-Anbieter", last: fmtDate(s.last), next: s.certain ? ` ${__("· next approx. {next}", {next: fmtDate(s.next)})}` : ""})}</span>
+      <span><b>${esc(s.name)}</b> <span class="muted small">${__("{interval} · last {last}{next}", {interval: s.certain ? `${s.count}× ${esc(AB_IV[s.interval] || s.interval)}` : __("known subscription provider"), last: fmtDate(s.last), next: s.certain ? ` ${__("· next approx. {next}", {next: fmtDate(s.next)})}` : ""})}</span>
         <div class="it-sub" title="${esc(s.sample)}">${esc(s.sample)}</div></span>
       <span class="row"><b class="num">${fmt(s.amount)}</b><span class="muted small">${s.interval !== "monat" ? __("= {monthly}/mo.", {monthly: fmt(s.monthly)}) : ""}</span>
         <button class="primary" data-abok>${__("adopt as subscription")}</button><button class="linkbtn" data-abno>${__("not a subscription")}</button></span></div>`).join("")
@@ -71,7 +71,7 @@ $("#aboSuggest").addEventListener("click", async (e) => {
       if (!r || !r.value) return;
       await api("/api/abo-suggestions/accept", { method: "POST", body: JSON.stringify({ name: r.value, amount: s.amount, interval: s.interval, first: s.first, last: s.last,
         keyword: s.key, tx_ids: s.tx_ids, category: abGuessCat(`${s.name} ${s.sample}`) }) });
-      toast("Abo angelegt"); renderAbos();
+      toast(__("Subscription created")); renderAbos();
     } else if (e.target.hasAttribute("data-abno")) {
       await api("/api/abo-suggestions/ignore", { method: "POST", body: JSON.stringify({ key: s.key }) }); renderAbos();
     }
@@ -79,7 +79,7 @@ $("#aboSuggest").addEventListener("click", async (e) => {
 });
 $("#aboRescan").onclick = () => renderAbos();
 $("#aboAdd").onclick = async () => {
-  const r = await openDialog({ title: __("New subscription"), label: "Name", suggestions: ["Netflix", "Spotify", "Disney+", "Microsoft 365", "iCloud", "Zeitung", "Fitness"], ok: __("Create") });
+  const r = await openDialog({ title: __("New subscription"), label: "Name", suggestions: ["Netflix", "Spotify", "Disney+", "Microsoft 365", "iCloud", __("Newspaper"), "Fitness"], ok: __("Create") });
   if (!r || !r.value) return;
   const today = new Date().toISOString().slice(0, 10);
   const c = await api("/api/re/contracts", { method: "POST", body: JSON.stringify({ kind: "abo", name: r.value, provider: r.value, match_text: r.value,
