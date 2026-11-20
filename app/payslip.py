@@ -1,10 +1,10 @@
-"""Lohnabrechnungen lesen: Monat, Person, Bruttolohn, Abzüge, Nettolohn, ausbezahlter Betrag.
+"""Read payslips: month, person, gross salary, deductions, net salary, paid-out amount.
 
-Schweizer Lohnabrechnungen sind sehr unterschiedlich aufgebaut (Lohnprogramm des Arbeitgebers, oft gescannt).
-Der Leser arbeitet deshalb zeilenweise über Stichworte:
+Swiss payslips are structured very differently (employer's payroll software, often scanned).
+The reader therefore works line by line via keywords:
   Bruttolohn …  7'400.00      AHV-Beitrag … -371.00      Nettolohn … 6'800.00      Ausbezahlter Lohn … 6'800.00
-Abzüge = negative Beträge zwischen Brutto und Auszahlung (Totalzeilen ausgenommen).
-Sonderzahlungen (13. Monatslohn, Bonus, Gratifikation, Prämie …) = Lohnarten vor dem Bruttolohn, einzeln gemerkt.
+Deductions = negative amounts between gross and payout (total lines excluded).
+Special payments (13th-month pay, bonus, gratuity, premium …) = pay types before the gross salary, remembered individually.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class Payslip:
     net: Optional[float]
     payout: Optional[float]
     child_allowance: float = 0.0
-    deductions: list = field(default_factory=list)   # [{"label", "amount", "kind"}] – Beträge positiv
+    deductions: list = field(default_factory=list)   # [{"label", "amount", "kind"}] – amounts positive
     extras: list = field(default_factory=list)       # Sonderzahlungen [{"label", "amount", "kind": "13"|"bonus"}] (brutto)
     employer: Optional[str] = None
 
@@ -63,7 +63,7 @@ def _amounts(line: str) -> list[float]:
 
 
 def _label(line: str) -> str:
-    m = AMT_RE.search(line)                       # Bezeichnung = Text vor dem ersten Betrag („13. Monatslohn 7'400.00“)
+    m = AMT_RE.search(line)                       # label = text before the first amount ("13. Monatslohn 7'400.00")
     lbl = line[:m.start()] if m else line
     lbl = re.sub(r"\s+[-–~]?\d+(?:[.,]\d+)?\s*%?\s*$", "", lbl)   # Satz am Ende („AHV 5.3%“) weg
     return re.sub(r"\s{2,}", " ", lbl).strip(" :|-–~")
@@ -95,7 +95,7 @@ def parse_payslip(text: str) -> Payslip:
     child = 0.0
     deductions: list = []
     extras: list = []
-    phase = 0          # 0 vor Brutto, 1 Abzüge, 2 nach Netto
+    phase = 0          # 0 before gross, 1 deductions, 2 after net
     for idx, raw in enumerate(lines):
         line = raw.strip()
         if not line:
@@ -110,7 +110,7 @@ def parse_payslip(text: str) -> Payslip:
             continue
         if PAYOUT_RE.search(line) and payout is None and phase >= 1:
             vals = am
-            if not vals:   # Betrag auf der nächsten Zeile ("Auszahlung:\nCHF 6'800.00 auf Bankkonto …")
+            if not vals:   # amount on the next line ("Auszahlung:\nCHF 6'800.00 auf Bankkonto …")
                 nxt = next((l.strip() for l in lines[idx + 1: idx + 3] if l.strip()), "")
                 vals = _amounts(nxt)
             if vals:

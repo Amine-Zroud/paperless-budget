@@ -1,16 +1,16 @@
-"""Kontoauszüge lesen (OCR-Text aus Paperless) und Buchungen mit Rechnungen abgleichen.
+"""Read bank statements (OCR text from Paperless) and match transactions with invoices.
 
-Bewusst ohne Abhängigkeit zu FastAPI/Paperless, damit es sich isoliert testen lässt.
+Deliberately without dependency on FastAPI/Paperless so that it can be tested in isolation.
 
-Getestet mit PostFinance, ZKB und Bank Zimmerberg. Zwei Layouts werden automatisch erkannt:
+Tested with PostFinance, ZKB and Bank Zimmerberg. Two layouts are detected automatically:
   A  "[Datum] Text Betrag Valuta [Saldo]"   (PostFinance, ZKB)
-  B  "Datum Text Valuta Betrag [Saldo]"     (Bank Zimmerberg u.ä.)
-  * Das Buchungsdatum gilt für Folgebuchungen ohne eigenes Datum weiter.
-  * Folgezeilen gehören zum Buchungstext, auch über Seitenumbrüche (Seitenkopf wird übersprungen).
-  * Einzelbelege (Gutschrifts-/Belastungsanzeige, z.B. ZKB „Gutschrift … ZKB-Referenz Valuta Währung Betrag“)
-    ergeben genau eine Buchung (sign_source "beleg").
-  * Der Saldo steht nur bei einzelnen Buchungen (in B teils in der Folgezeile). Zwischen zwei Saldi
-    werden die Vorzeichen so bestimmt, dass die Summe exakt aufgeht – ausgehend von Stichworten.
+  B  "Date Text Value-date Amount [Balance]"     (Bank Zimmerberg etc.)
+  * The booking date carries over to following transactions without their own date.
+  * Following lines belong to the booking text, also across page breaks (the page header is skipped).
+  * Single documents (credit/debit advice, e.g. ZKB "Gutschrift … ZKB-Referenz Valuta Währung Betrag")
+    yield exactly one transaction (sign_source "beleg").
+  * The balance is only given on some transactions (in B sometimes on the following line). Between two balances
+    the signs are determined so that the sum adds up exactly – starting from keywords.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ BALANCE_RE = re.compile(r"kontostand|saldovortrag|anfangssaldo|alter saldo|saldo
 END_RE = re.compile(r"^\s*(total|umsatztotal|summe|additionen)\b|bitte überprüfen sie|wir bitten sie|freundliche grüsse", re.I)
 PAGE_RE = re.compile(r"\bseite\s+\d+\s*(/|von)\s*\d+|\b[A-Z]{2}\s*-\s*\d+/\d+\s*$", re.I)
 COLHEAD_RE = re.compile(r"^\s*datum\s+(text|buchungstext|beschreibung|geschäftsvorgang)", re.I)
-# Füllzeilen: überspringen, die Buchung läuft aber weiter (Text kann über Seiten gehen)
+# filler lines: skip them, but the transaction continues (text can span pages)
 NOISE_RE = re.compile(
     r"^\s*(datum\s+\d{2}\.\d{2}\.\d{4}\s*$|iban\b|kontonummer|konto-nr|bic\b|"
     r"\d{5}\s+[a-z]{2}\s+\d{6}\.\d{2}\s*$|karten nr\.|kauf/dienstleistung vom\s*$|vom\s+\d{2}\.\d{2}\.\d{4}\s*$|"
@@ -43,7 +43,7 @@ NOISE_RE = re.compile(
     re.I,
 )
 CARD_RE = re.compile(r"\s*(kartennummer|kartennr)\s*:.*$", re.I)
-# Kartennummer (letzte 4 Ziffern) für Regeln, z.B. "Tankomat + 1234"
+# card number (last 4 digits) for rules, e.g. "Tankomat + 1234"
 CARDNUM_RE = re.compile(r"(kartennummer|kartennr|karten nr\.)\s*:?\s*(?:[\dX*]*(\d{4})(?:-\d)?\b)?", re.I)
 CARD_ONLY_RE = re.compile(r"^\s*[\dX*]*(\d{4})(?:-\d)?\s*$")
 CREDIT_RE = re.compile(
@@ -64,9 +64,9 @@ class Booking:
     date: str            # ISO JJJJ-MM-TT
     text: str
     amount: float        # negativ = Belastung, positiv = Gutschrift
-    sign_source: str     # "saldo" (geprüft) | "korrigiert" (über Saldo bestimmt) | "stichwort" (ungeprüft)
-    merchant: str = ""   # Händler / Empfänger / Auftraggeber (für Kategorie-Regeln)
-    card: str = ""       # letzte 4 Ziffern der Karte, falls angegeben
+    sign_source: str     # "saldo" (verified) | "korrigiert" (determined via balance) | "stichwort" (unverified)
+    merchant: str = ""   # merchant / recipient / payer (for category rules)
+    card: str = ""       # last 4 digits of the card, if given
     hash: str = ""
 
 
@@ -96,7 +96,7 @@ def _iso(d: str) -> Optional[str]:
 
 
 def _solve(group: list[_Raw], delta: float) -> Optional[list[int]]:
-    """Vorzeichen so wählen, dass die Summe der Saldo-Differenz entspricht (möglichst wenige Stichwort-Vorzeichen umdrehen)."""
+    """Choose signs so that the sum equals the balance difference (flip as few keyword-based signs as possible)."""
     base = [g.sign for g in group]
     n = len(group)
     max_k = n if n <= 14 else 3
@@ -128,8 +128,8 @@ _TYPE_PREFIX_RE = re.compile(
 
 
 def guess_merchant(head: str, lines: list[str]) -> str:
-    """Gegenpartei erraten: Kartenzahlung -> Händler; Lastschrift/Gutschrift -> Empfänger bzw. Auftraggeber."""
-    # Kartenzahlung mit Uhrzeit im Kopf (z.B. "Debitkarten-Einkauf 01.05.2026 12:58 Drogerie" + "Moll AG")
+    """Guess the counterparty: card payment -> merchant; direct debit/credit -> recipient or payer."""
+    # card payment with the time in the header (e.g. "Debitkarten-Einkauf 01.05.2026 12:58 Drogerie" + "Moll AG")
     t = re.search(r"\b\d{2}:\d{2}\b\s*(.*)$", head)
     if t:
         first = t.group(1).strip()
@@ -144,7 +144,7 @@ def guess_merchant(head: str, lines: list[str]) -> str:
             if re.match(r"(auftraggeber|absender):", l, re.I) and i + 1 < len(lines):
                 return lines[i + 1]
     if h.startswith("LASTSCHRIFT") or "E-RECHNUNG" in h or "EBILL" in h:
-        # PostFinance: 1. Block = Bank des Empfängers (bis PLZ-Zeile), danach der Empfänger
+        # PostFinance: 1st block = recipient's bank (up to the postcode line), then the recipient
         for i, l in enumerate(lines):
             if _POSTCODE_RE.match(l) and i + 1 < len(lines):
                 return lines[i + 1]
@@ -251,7 +251,7 @@ def parse_statement(content: str, doc_id: int = 0) -> list[Booking]:
         if cur is None:
             continue
         text = CARD_RE.sub("", line).strip()
-        # Layout B: Saldo steht teils am Ende einer Folgezeile ("5000 Aarau 487.07")
+        # layout B: the balance is sometimes at the end of a following line ("5000 Aarau 487.07")
         if layout == "B" and cur.saldo is None and saldo is not None and group:
             t = TRAIL_AMT_RE.match(text)
             if t:
@@ -271,7 +271,7 @@ def parse_statement(content: str, doc_id: int = 0) -> list[Booking]:
         bookings.append(Booking(date=r.date, text=text[:300], amount=round(r.sign * r.value, 2), sign_source=r.source,
                                 merchant=guess_merchant(r.head, r.lines)[:80], card=r.card))
 
-    # stabile Kennung je Buchung (gleiche Buchung beim erneuten Einlesen / in überlappenden Auszügen wiedererkennen)
+    # stable ID per transaction (recognise the same transaction on re-import / in overlapping statements)
     seen: dict[str, int] = {}
     for b in bookings:
         base = f"{b.date}|{abs(b.amount):.2f}|{b.text.lower()}"
@@ -282,7 +282,7 @@ def parse_statement(content: str, doc_id: int = 0) -> list[Booking]:
 
 
 def parse_advice(content: str) -> list[Booking]:
-    """Einzelbeleg: Gutschrifts- oder Belastungsanzeige mit genau einer Buchung."""
+    """Single document: credit or debit advice with exactly one transaction."""
     lines = [l.strip() for l in (content or "").splitlines() if l.strip()]
     kind = next((m.group(1).lower() for l in lines for m in [ADVICE_KIND_RE.match(l)] if m), None)
     if not kind:
@@ -304,7 +304,7 @@ def parse_advice(content: str) -> list[Booking]:
         m = ADVICE_MSG_RE.match(l)
         if m:
             msg.append((m.group(2) or (lines[i + 1] if i + 1 < len(lines) else "")).strip())
-    # "Nachname, Vorname, Strasse …" -> "Vorname Nachname" (wie im Kontoauszug üblich)
+    # "Surname, First name, Street …" -> "First name Surname" (as usual on bank statements)
     parts = [x.strip() for x in party.split(",")]
     name = f"{parts[1]} {parts[0]}" if len(parts) >= 2 and parts[1] and not re.search(r"\d", parts[1]) else parts[0]
     text = " · ".join(x for x in [kind.upper(), (("AUFTRAGGEBER: " if sign > 0 else "BEGÜNSTIGTER: ") + f"{name} ({party})") if party else "",
@@ -316,7 +316,7 @@ def parse_advice(content: str) -> list[Booking]:
 
 
 def parse_any(content: str, doc_id: int = 0) -> list[Booking]:
-    """Kontoauszug – oder, falls keine Buchungen gefunden werden, Einzelbeleg."""
+    """Bank statement – or, if no transactions are found, single document."""
     return parse_statement(content, doc_id) or parse_advice(content)
 
 
@@ -334,10 +334,10 @@ def _tokens(s: str) -> set[str]:
 
 
 def candidates(tx: dict, invoices: list[dict], corr_names: dict, window_days: int = 60, before_days: int = 5) -> list[dict]:
-    """Passende Rechnungen für eine Belastung, bestes Ergebnis zuerst.
+    """Matching invoices for a debit, best result first.
 
     tx: {"date", "text", "amount"(negativ)}; invoices: {"id","date","amount","correspondent","title"}.
-    Bedingung: gleicher Betrag; Rechnungsdatum höchstens `window_days` vor bzw. `before_days` nach der Zahlung.
+    Condition: same amount; invoice date at most `window_days` before or `before_days` after the payment.
     """
     if tx["amount"] >= 0:
         return []
@@ -363,9 +363,9 @@ def candidates(tx: dict, invoices: list[dict], corr_names: dict, window_days: in
 
 
 def is_unique(cands: list[dict], gap_days: int = 20) -> bool:
-    """Für die automatische Zuordnung: Betrag UND Name passen, und der Treffer ist klar der beste.
-    Bei wiederkehrenden Rechnungen (Miete, Prämien, Abos) passen oft mehrere Monate – dann gewinnt die
-    zeitlich nächste, wenn die übernächste mindestens `gap_days` Tage weiter entfernt ist."""
+    """For automatic matching: amount AND name match, and the hit is clearly the best.
+    With recurring invoices (rent, premiums, subscriptions) several months often match – then the
+    closest in time wins, if the next-closest is at least `gap_days` days further away."""
     hits = [c for c in cands if c["name_hit"]]
     if not hits or not cands[0]["name_hit"]:
         return False

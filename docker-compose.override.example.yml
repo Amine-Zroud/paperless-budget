@@ -1,6 +1,6 @@
-# Lokale Anpassungen – kopieren nach docker-compose.override.yml (wird von Git ignoriert).
-# Docker Compose liest diese Datei automatisch zusätzlich zur docker-compose.yml.
-# Beispiel: dem Docker-Netzwerk von Paperless beitreten (Name mit `docker network ls` prüfen).
+# Local customisations – copy to docker-compose.override.yml (ignored by Git).
+# Docker Compose reads this file automatically in addition to docker-compose.yml.
+# Example: join Paperless's Docker network (check the name with `docker network ls`).
 services:
   paperless-budget:
     networks:

@@ -1,17 +1,17 @@
-"""Fahrzeuge: Tankkarten-Rechnungen lesen und Kennzahlen berechnen.
+"""Vehicles: read fuel card invoices and calculate key figures.
 
-Ohne Abhängigkeit zu FastAPI/Paperless/Traccar, damit es sich isoliert testen lässt.
+Without dependency on FastAPI/Paperless/Traccar so that it can be tested in isolation.
 
-Tankkarten-Rechnungen: Vögtlin-Meyer (unten) und AVIA / A.H. Meyer & Cie AG (parse_avia_invoice).
+Fuel card invoices: Vögtlin-Meyer (below) and AVIA / A.H. Meyer & Cie AG (parse_avia_invoice).
 
 Vögtlin-Meyer:
     Karten-Nr. 700000000012345600 Max Muster
     05.06.26 18:56:00 TS Musterhausen Benzin bleifrei 95 44.58 L15 175.0 8.1 % 78.02 0.00 1.78 76.24
-    12.06.26 07:52:37 TS Beispielwil Benzin bleifrei 95 45.93 L15 00          <- Zeile kann umbrechen
+    12.06.26 07:52:37 TS Beispielwil Benzin bleifrei 95 45.93 L15 00          <- line can wrap
     172.0 8.1 % 79.00 0.00 1.84 77.16
     Total Tankkarte 152.72 00 257.93
-  Pro Tankvorgang: Menge + Einheit (L/kWh), danach MwSt-Satz und Beträge; der letzte Betrag ist
-  der belastete Betrag nach Rabatt, der erste der Bruttobetrag.
+  Per refuelling: quantity + unit (L/kWh), then VAT rate and amounts; the last amount is
+  the charged amount after discount, the first one the gross amount.
 """
 from __future__ import annotations
 
@@ -35,11 +35,11 @@ TOTAL_RE = re.compile(r"^\s*total\b", re.I)
 class FuelEntry:
     date: str          # ISO
     time: str
-    card: str          # Kartennummer (nur Ziffern)
+    card: str          # card number (digits only)
     description: str   # Tankstelle + Produkt
     quantity: float
     unit: str          # "L" | "kWh"
-    amount: float      # belasteter Betrag (nach Rabatt)
+    amount: float      # charged amount (after discount)
     gross: float
     hash: str = ""
 
@@ -104,7 +104,7 @@ def parse_fuel_invoice(content: str) -> list[FuelEntry]:
 
 
 def card_matches(card: str, keys: str) -> bool:
-    """Karten-Schlüssel eines Fahrzeugs: kommagetrennt, ganze Nummer oder Endziffern (z.B. '2345600, 1234')."""
+    """Card keys of a vehicle: comma-separated, full number or last digits (e.g. '2345600, 1234')."""
     digits = re.sub(r"\D", "", card or "")
     if not digits:
         return False
@@ -124,14 +124,14 @@ def per_km(cost: float, km: float) -> Optional[float]:
 
 
 # ---------------------------------------------------------------- AVIA (A.H. Meyer & Cie AG)
-# Eine Seite pro Karte ("Karten-Nr. 111111"), Zeilen im Layout-Text:
+# One page per card ("Karten-Nr. 111111"), lines in the layout text:
 #   02.02.24  08:52 Musterstadt,Hauptstrasse    AVIA  Bleifrei 95   42.46   1.790   8.1% inkl.   76.00
 #   29.02.24                                     Administrationsgebühr  1.00          8.1% inkl.    2.50
 AVIA_CARD_RE = re.compile(r"karten-?\s*nr\.?\s*:?\s*(\d{4,})", re.I)
 AVIA_ROW_RE = re.compile(
     r"^\s*(?P<d>\d{2}\.\d{2}\.\d{2,4})\s+(?:(?P<t>\d{1,2}:\d{2})\s+)?(?P<mid>.+?)\s+(?P<qty>\d+[.,]\d{2})\s+"
     r"(?:(?P<price>\d[.,]\d{3})\s+)?\d+(?:[.,]\d+)?\s?%\s*inkl\.?\s+(?P<total>\d[\d'’]*[.,]\d{2})\s*$", re.I)
-AVIA_PRODUCT_RE = re.compile(r"^a[vw]{1,2}[i1l]a\b", re.I)   # OCR-Varianten wie "AvVIA"
+AVIA_PRODUCT_RE = re.compile(r"^a[vw]{1,2}[i1l]a\b", re.I)   # OCR variants such as "AvVIA"
 
 
 def parse_avia_invoice(content: str) -> list[FuelEntry]:
@@ -156,7 +156,7 @@ def parse_avia_invoice(content: str) -> list[FuelEntry]:
             desc = f"{station} {product}".strip()
         else:
             desc = " ".join(parts)
-        fuel = bool(m.group("price"))                  # Gebühren haben keinen Literpreis
+        fuel = bool(m.group("price"))                  # fees have no price per litre
         qty = _num(m.group("qty").replace(",", ".")) if fuel else 0.0
         total = _num(m.group("total").replace(",", "."))
         entries.append(FuelEntry(date=iso, time=m.group("t") or "", card=card, description=desc[:120],
@@ -168,6 +168,6 @@ def parse_avia_invoice(content: str) -> list[FuelEntry]:
 
 
 def parse_any_fuel(content: str) -> list[FuelEntry]:
-    """Bekannte Formate probieren, das mit den meisten Tankvorgängen gewinnt."""
+    """Try known formats, the one with the most refuellings wins."""
     results = [parse_fuel_invoice(content), parse_avia_invoice(content)]
     return max(results, key=len)

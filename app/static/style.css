@@ -359,3 +359,6 @@ table.users select, table.users input:not([type=checkbox]) { min-width: 90px; }
 .mt-set summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .mt-grp { margin: 18px 0 8px; font-size: 15px; color: var(--muted); }
 .rp-sug { background: rgba(46,125,50,.07); border-radius: 8px; }
+
+/* language switcher */
+select.lang-switch { width: auto; padding: 2px 6px; font-size: 12px; }

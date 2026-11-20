@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de-CH">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,89 +11,92 @@
   <meta name="theme-color" content="#17803d">
   <link rel="stylesheet" href="style.css">
   <script src="chart.umd.min.js"></script>
+  <script src="locales/de.js"></script>
+  <script src="i18n.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand">Budget <span class="muted">· Paperless</span></div>
-    <div id="userBox" class="userbox" hidden><span>👤 <span id="userName"></span></span><a href="#" data-gosettings="account">Konto</a><a href="#" id="logoutBtn">Abmelden</a></div>
+    <div id="userBox" class="userbox" hidden><span>👤 <span id="userName"></span></span><a href="#" data-gosettings="account">Account</a><a href="#" id="logoutBtn">Sign out</a></div>
+    <select class="lang-switch" aria-label="Language"></select>
     <div class="monthnav">
-      <button id="prevMonth" aria-label="Vormonat">‹</button>
+      <button id="prevMonth" aria-label="Previous month">‹</button>
       <span id="monthLabel"></span>
-      <button id="nextMonth" aria-label="Nächster Monat">›</button>
+      <button id="nextMonth" aria-label="Next month">›</button>
     </div>
     <nav class="tabs">
-      <button data-view="overview" class="active">Übersicht</button>
-      <button data-view="expenses">Ausgaben</button>
-      <button data-view="review">Erfassen <span id="reviewBadge" class="badge" hidden></span></button>
-      <button data-view="bank">Abgleich <span id="bankBadge" class="badge" hidden></span></button>
-      <button data-view="vehicles">Fahrzeuge</button>
-      <button data-view="realestate">Immobilien</button>
-      <button data-view="projects">Projekte</button>
-      <button data-view="contracts">Verträge <span id="ctBadge" class="badge" hidden></span></button>
-      <button data-view="abos">Abos</button>
-      <button data-view="meters">Zähler</button>
-      <button data-view="income">Einnahmen</button>
-      <button data-view="settings">Einstellungen</button>
+      <button data-view="overview" class="active">Overview</button>
+      <button data-view="expenses">Expenses</button>
+      <button data-view="review">Capture <span id="reviewBadge" class="badge" hidden></span></button>
+      <button data-view="bank">Reconcile <span id="bankBadge" class="badge" hidden></span></button>
+      <button data-view="vehicles">Vehicles</button>
+      <button data-view="realestate">Properties</button>
+      <button data-view="projects">Projects</button>
+      <button data-view="contracts">Contracts <span id="ctBadge" class="badge" hidden></span></button>
+      <button data-view="abos">Subscriptions</button>
+      <button data-view="meters">Meters</button>
+      <button data-view="income">Income</button>
+      <button data-view="settings">Settings</button>
     </nav>
   </header>
 
   <main>
     <div id="alert" class="alert" hidden></div>
-    <div id="roBanner" class="card hint" hidden>👁 Du kannst diesen Bereich nur ansehen – Änderungen werden nicht gespeichert.</div>
+    <div id="roBanner" class="card hint" hidden>👁 You can only view this area – changes are not saved.</div>
 
-    <!-- Übersicht -->
+    <!-- Overview -->
     <section id="view-overview" class="view">
       <div id="setupCard" class="card setup" hidden>
-        <h3>Custom Field fehlt</h3>
-        <p>In Paperless gibt es noch kein Feld <b id="setupFieldName"></b> vom Typ <i>Monetary</i>. Die App braucht es, um Beträge zu lesen und zu schreiben.</p>
-        <button id="createField" class="primary">Feld in Paperless anlegen</button>
+        <h3>Custom field missing</h3>
+        <p>Paperless doesn't have a field <b id="setupFieldName"></b> of type <i>Monetary</i>. The app needs it to read and write amounts.</p>
+        <button id="createField" class="primary">Create field in Paperless</button>
       </div>
       <div id="noCatHint" class="card hint" hidden>
-        Noch keine Budget-Kategorien gewählt – unter <a href="#" data-goto="settings">Einstellungen</a> Paperless-Tags als Kategorien markieren.
+        No budget categories selected yet – under <a href="#" data-goto="settings">Settings</a> mark Paperless tags as categories.
       </div>
 
       <div class="kpis">
-        <div class="kpi"><div class="kpi-label">Einnahmen</div><div class="kpi-value" id="kpiIncome">–</div></div>
-        <div class="kpi"><div class="kpi-label">Ausgaben</div><div class="kpi-value" id="kpiSpent">–</div><div class="kpi-sub" id="kpiDocs"></div></div>
-        <div class="kpi"><div class="kpi-label">Saldo</div><div class="kpi-value" id="kpiBalance">–</div></div>
-        <div class="kpi"><div class="kpi-label">Budget genutzt</div><div class="kpi-value" id="kpiBudget">–</div><div class="kpi-sub" id="kpiBudgetSub"></div></div>
+        <div class="kpi"><div class="kpi-label">Income</div><div class="kpi-value" id="kpiIncome">–</div></div>
+        <div class="kpi"><div class="kpi-label">Expenses</div><div class="kpi-value" id="kpiSpent">–</div><div class="kpi-sub" id="kpiDocs"></div></div>
+        <div class="kpi"><div class="kpi-label">Balance</div><div class="kpi-value" id="kpiBalance">–</div></div>
+        <div class="kpi"><div class="kpi-label">Budget used</div><div class="kpi-value" id="kpiBudget">–</div><div class="kpi-sub" id="kpiBudgetSub"></div></div>
       </div>
 
       <div class="card plan" id="planCard">
-        <div class="cardhead"><h3>Rest vom Lohn</h3><button id="planAdd">+ Vormerken</button></div>
-        <div id="planBody" class="muted small">Lade …</div>
+        <div class="cardhead"><h3>Left of salary</h3><button id="planAdd">+ Plan expense</button></div>
+        <div id="planBody" class="muted small">Loading …</div>
       </div>
 
       <div class="grid2">
         <div class="card">
-          <h3>Budget pro Kategorie</h3>
+          <h3>Budget per category</h3>
           <div id="catList" class="catlist"></div>
         </div>
         <div class="card">
-          <h3>Verteilung</h3>
+          <h3>Distribution</h3>
           <div class="chartbox small"><canvas id="pieChart"></canvas></div>
         </div>
       </div>
 
       <div class="card">
         <div class="cardhead">
-          <h3>Ausgaben im Monat</h3>
+          <h3>Expenses this month</h3>
           <div class="row">
-            <input id="ovSearch" type="search" placeholder="Suchen …">
+            <input id="ovSearch" type="search" placeholder="Search …">
             <select id="ovFilter">
-              <option value="in">Im Budget</option>
-              <option value="all">Alle</option>
-              <option value="out">Nicht berücksichtigt</option>
+              <option value="in">In budget</option>
+              <option value="all">All</option>
+              <option value="out">Excluded</option>
             </select>
           </div>
         </div>
-        <p class="muted small">Zweck wird aus der Rechnung gelesen (✎ zum Korrigieren). Häkchen entfernen = im Budget nicht berücksichtigen.</p>
+        <p class="muted small">Purpose is read from the invoice (✎ to correct). Untick = exclude from the budget.</p>
         <div id="ovItems" class="items"></div>
-        <div class="row" style="justify-content:center;margin-top:8px"><button id="ovMore" class="linkbtn" hidden>alle anzeigen</button></div>
+        <div class="row" style="justify-content:center;margin-top:8px"><button id="ovMore" class="linkbtn" hidden>show all</button></div>
       </div>
 
       <div class="card">
-        <h3>Verlauf (12 Monate)</h3>
+        <h3>Trend (12 months)</h3>
         <div class="chartbox"><canvas id="trendChart"></canvas></div>
       </div>
     </section>
@@ -102,25 +105,25 @@
     <section id="view-expenses" class="view" hidden>
       <div class="card">
         <div class="cardhead">
-          <h3>Ausgaben im Monat</h3>
-          <div class="row"><input id="expSearch" type="search" placeholder="Suchen …"><select id="expFilter"></select>
-            <label class="check small" style="white-space:nowrap"><input type="checkbox" id="expShowOut"> nicht berücksichtigte anzeigen <span id="expOutCount" class="muted"></span></label></div>
+          <h3>Expenses this month</h3>
+          <div class="row"><input id="expSearch" type="search" placeholder="Search …"><select id="expFilter"></select>
+            <label class="check small" style="white-space:nowrap"><input type="checkbox" id="expShowOut"> show excluded <span id="expOutCount" class="muted"></span></label></div>
         </div>
         <div class="tablewrap">
           <table class="table">
-            <thead><tr><th title="Im Budget berücksichtigen">✓</th><th>Datum</th><th>Dokument / Zweck</th><th>Korrespondent</th><th>Kategorie</th><th class="num">Betrag</th></tr></thead>
+            <thead><tr><th title="Include in budget">✓</th><th>Date</th><th>Document / purpose</th><th>Correspondent</th><th>Category</th><th class="num">Amount</th></tr></thead>
             <tbody id="expBody"></tbody>
             <tfoot><tr><td colspan="5">Total <span class="muted small" id="expTotalNote"></span></td><td class="num" id="expTotal"></td></tr></tfoot>
           </table>
         </div>
-        <p class="muted small">Änderungen an Kategorie und Betrag werden sofort in Paperless gespeichert.</p>
+        <p class="muted small">Changes to category and amount are saved to Paperless immediately.</p>
       </div>
     </section>
 
     <!-- Erfassen -->
     <section id="view-review" class="view" hidden>
       <div class="card">
-        <h3>Dokumente ohne Betrag</h3>
+        <h3>Documents without amount</h3>
         <p class="muted small" id="reviewInfo"></p>
         <div id="reviewList" class="reviewlist"></div>
       </div>
@@ -129,28 +132,28 @@
     <!-- Abgleich -->
     <section id="view-bank" class="view" hidden>
       <div id="bankSetup" class="card hint" hidden>
-        Lege zuerst unter <a href="#" data-goto="settings">Einstellungen</a> fest, an welchem Dokumenttyp oder Tag die App Kontoauszüge erkennt.
+        First define under <a href="#" data-goto="settings">Settings</a> which document type or tag the app uses to recognise bank statements.
       </div>
       <div class="kpis small-kpis" id="bankKpis">
-        <div class="kpi"><div class="kpi-label">Buchungen</div><div class="kpi-value" id="bkCount">–</div><div class="kpi-sub" id="bkCountSub"></div></div>
-        <div class="kpi"><div class="kpi-label">Mit Rechnung</div><div class="kpi-value" id="bkMatched">–</div></div>
-        <div class="kpi"><div class="kpi-label">Vorschläge</div><div class="kpi-value" id="bkSuggest">–</div></div>
-        <div class="kpi"><div class="kpi-label">Ohne Beleg (Ausgabe)</div><div class="kpi-value" id="bkNoDoc">–</div><div class="kpi-sub" id="bkNoDocSub"></div></div>
+        <div class="kpi"><div class="kpi-label">Transactions</div><div class="kpi-value" id="bkCount">–</div><div class="kpi-sub" id="bkCountSub"></div></div>
+        <div class="kpi"><div class="kpi-label">With invoice</div><div class="kpi-value" id="bkMatched">–</div></div>
+        <div class="kpi"><div class="kpi-label">Suggestions</div><div class="kpi-value" id="bkSuggest">–</div></div>
+        <div class="kpi"><div class="kpi-label">No receipt (expense)</div><div class="kpi-value" id="bkNoDoc">–</div><div class="kpi-sub" id="bkNoDocSub"></div></div>
       </div>
 
       <div class="card">
         <div class="cardhead">
-          <h3>Buchungen im Monat</h3>
+          <h3>Transactions this month</h3>
           <div class="row">
             <select id="bkFilter">
-              <option value="todo">Zu erledigen</option>
-              <option value="all">Alle</option>
-              <option value="matched">Mit Rechnung</option>
-              <option value="nodoc">Ohne Beleg</option>
-              <option value="credit">Gutschriften</option>
-              <option value="ignored">Ignoriert</option>
+              <option value="todo">To do</option>
+              <option value="all">All</option>
+              <option value="matched">With invoice</option>
+              <option value="nodoc">No receipt</option>
+              <option value="credit">Credits</option>
+              <option value="ignored">Ignored</option>
             </select>
-            <button id="bkMatchUnique" class="primary" disabled>Eindeutige zuordnen</button>
+            <button id="bkMatchUnique" class="primary" disabled>Match unambiguous</button>
           </div>
         </div>
         <div id="bkList" class="txlist"></div>
@@ -159,22 +162,22 @@
       <div class="grid2">
         <div class="card">
           <div class="cardhead">
-            <h3>Kontoauszüge</h3>
-            <button id="bkParseNew">Neue einlesen</button>
+            <h3>Bank statements</h3>
+            <button id="bkParseNew">Import new</button>
           </div>
           <div id="stList"></div>
         </div>
         <div class="card">
-          <h3>Regeln</h3>
-          <p class="muted small">Buchungen ohne Rechnung automatisch einer Kategorie oder einem Fahrzeug zuordnen.</p>
+          <h3>Rules</h3>
+          <p class="muted small">Automatically assign transactions without an invoice to a category or vehicle.</p>
           <div id="bankRuleSummary" class="muted small"></div>
-          <a href="#" data-gosettings="bank">Regeln verwalten → Einstellungen</a>
+          <a href="#" data-gosettings="bank">Manage rules → Settings</a>
         </div>
       </div>
 
       <div class="card">
-        <h3>Offene Rechnungen</h3>
-        <p class="muted small">Rechnungen der letzten 4 Monate (älter als 10 Tage), denen noch keine Zahlung zugeordnet ist.</p>
+        <h3>Open invoices</h3>
+        <p class="muted small">Invoices from the last 4 months (older than 10 days) that have no payment matched yet.</p>
         <div id="openInv"></div>
       </div>
     </section>
@@ -182,46 +185,45 @@
     <!-- Fahrzeuge -->
     <section id="view-vehicles" class="view" hidden>
       <div id="vehSetup" class="card hint" hidden>
-        Noch keine Fahrzeuge erfasst – unter <a href="#" data-goto="settings">Einstellungen → Fahrzeuge</a> anlegen
-        (Name, Traccar-Gerät, Paperless-Tag, Tankkarten-Nr.).
+        No vehicles yet – under <a href="#" data-goto="settings">Settings → Vehicles</a> add one (name, Traccar device, Paperless tag, fuel card no.).
       </div>
       <div class="cardhead" style="margin-bottom:12px">
         <div class="muted small" id="vehPeriod"></div>
-        <div class="row"><button id="vehRefresh" class="linkbtn" title="Kilometer neu von Traccar laden">km neu laden</button>
-        <select id="vehMonths"><option value="12">12 Monate</option><option value="6">6 Monate</option><option value="24">24 Monate</option><option value="ytd">Laufendes Jahr</option></select></div>
+        <div class="row"><button id="vehRefresh" class="linkbtn" title="Reload kilometres from Traccar">Reload km</button>
+        <select id="vehMonths"><option value="12">12 months</option><option value="6">6 months</option><option value="24">24 months</option><option value="ytd">Current year</option></select></div>
       </div>
       <div id="vehAlert" class="alert" hidden></div>
       <div id="vehList"></div>
       <div class="grid2">
         <div class="card">
-          <div class="cardhead"><h3>Tankkarten-Rechnungen</h3><button id="fuelParseNew">Neue einlesen</button></div>
+          <div class="cardhead"><h3>Fuel card invoices</h3><button id="fuelParseNew">Import new</button></div>
           <div id="fuelDocs"></div>
         </div>
         <div class="card">
-          <h3>Tankvorgang manuell erfassen</h3>
-          <p class="muted small">Für Tankvorgänge ohne Tankkarte (z.B. mit Debitkarte bezahlt), damit der Verbrauch stimmt. Den Betrag nur hier erfassen, wenn die Bankbuchung nicht schon dem Fahrzeug zugeordnet ist.</p>
+          <h3>Add refuelling manually</h3>
+          <p class="muted small">For refuelling without a fuel card (e.g. paid by debit card) so that consumption is correct. Only enter the amount here if the bank transaction isn't already assigned to the vehicle.</p>
           <form id="fuelForm" class="form">
             <div class="row">
-              <label>Fahrzeug<select name="vehicle_id" required></select></label>
-              <label>Datum<input name="date" type="date" required></label>
+              <label>Vehicle<select name="vehicle_id" required></select></label>
+              <label>Date<input name="date" type="date" required></label>
             </div>
             <div class="row">
-              <label>Menge<input name="quantity" type="number" step="0.01" required></label>
-              <label>Betrag<input name="amount" type="number" step="0.05" required></label>
+              <label>Quantity<input name="quantity" type="number" step="0.01" required></label>
+              <label>Amount<input name="amount" type="number" step="0.05" required></label>
             </div>
-            <label>Bemerkung<input name="description" placeholder="z.B. Socar Hallwil"></label>
-            <div class="row"><button type="submit" class="primary">Speichern</button></div>
+            <label>Remark<input name="description" placeholder="e.g. Shell"></label>
+            <div class="row"><button type="submit" class="primary">Save</button></div>
           </form>
         </div>
       </div>
       <div class="grid2">
         <div class="card">
-          <div class="cardhead"><h3>Parkingpay-Auszüge</h3><button id="parkParseNew">Neue einlesen</button></div>
+          <div class="cardhead"><h3>Parkingpay statements</h3><button id="parkParseNew">Import new</button></div>
           <div id="parkDocs"></div>
         </div>
         <div class="card">
-          <h3>Parkvorgänge ohne Fahrzeug</h3>
-          <p class="muted small">Kennzeichen unbekannt – unter <a href="#" data-gosettings="vehicles">Einstellungen → Fahrzeuge</a> das Kennzeichen beim Fahrzeug eintragen oder hier einzeln zuordnen.</p>
+          <h3>Parking sessions without vehicle</h3>
+          <p class="muted small">Unknown licence plate – under <a href="#" data-gosettings="vehicles">Settings → Vehicles</a> enter the plate on the vehicle or assign them individually here.</p>
           <div id="parkUnassigned"></div>
         </div>
       </div>
@@ -232,18 +234,18 @@
       <div class="cardhead" style="margin-bottom:12px">
         <div class="row">
           <select id="reProp"></select>
-          <button id="reAddProp">+ Haus</button>
-          <select id="reYear" title="Abrechnungsperiode"></select>
+          <button id="reAddProp">+ Building</button>
+          <select id="reYear" title="Billing period"></select>
         </div>
         <nav class="subtabs" id="reTabs">
-          <button data-sub="overview" class="active">Übersicht</button>
-          <button data-sub="costs">Kosten</button>
-          <button data-sub="rent">Mieten</button>
-          <button data-sub="statement">Abrechnung</button>
-          <button data-sub="setup">Einrichtung</button>
+          <button data-sub="overview" class="active">Overview</button>
+          <button data-sub="costs">Costs</button>
+          <button data-sub="rent">Rents</button>
+          <button data-sub="statement">Statement</button>
+          <button data-sub="setup">Setup</button>
         </nav>
       </div>
-      <div id="reEmpty" class="card hint" hidden>Noch kein Haus angelegt – oben auf <b>+ Haus</b> klicken.</div>
+      <div id="reEmpty" class="card hint" hidden>No building yet – click <b>+ Building</b> above.</div>
       <div id="reBody"></div>
     </section>
 
@@ -251,33 +253,32 @@
     <section id="view-projects" class="view" hidden>
       <div class="grid2">
         <div class="card">
-          <div class="cardhead"><h3>Projekte</h3><button id="prAdd">+ Projekt</button></div>
-          <p class="muted small">Belege über einen Paperless-Tag (ganz) oder in der App (ganz oder Teilbetrag) zuordnen.
-            „Nicht im Haushaltsbudget“ = zugeordnete Beträge zählen nicht zum Haushalt (z.B. Geschäft).</p>
+          <div class="cardhead"><h3>Projects</h3><button id="prAdd">+ Project</button></div>
+          <p class="muted small">Assign receipts via a Paperless tag (in full) or in the app (in full or partially). “Not in household budget” = assigned amounts don't count towards the household (e.g. business).</p>
           <div id="prList"></div>
         </div>
         <div class="card" id="prDetailCard">
-          <div class="cardhead"><h3 id="prTitle">Projekt wählen</h3><button id="prSearch" hidden>+ Belege zuordnen</button></div>
-          <div id="prDetail" class="muted small">Links ein Projekt anklicken.</div>
+          <div class="cardhead"><h3 id="prTitle">Select a project</h3><button id="prSearch" hidden>+ Assign receipts</button></div>
+          <div id="prDetail" class="muted small">Click a project on the left.</div>
         </div>
       </div>
     </section>
 
-    <!-- Verträge & Kredite -->
+    <!-- Contracts & loans -->
     <section id="view-contracts" class="view" hidden>
       <div class="kpis" id="ctKpis"></div>
       <div id="ctNotices"></div>
       <div class="grid2 ct-grid">
         <div class="card">
-          <div class="cardhead"><h3>Verträge</h3><button id="ctAddContract">+ Vertrag</button></div>
+          <div class="cardhead"><h3>Contracts</h3><button id="ctAddContract">+ Contract</button></div>
           <div id="ctList"></div>
-          <div class="cardhead" style="margin-top:18px"><h3>Kredite</h3><button id="ctAddLoan">+ Kredit</button></div>
+          <div class="cardhead" style="margin-top:18px"><h3>Loans</h3><button id="ctAddLoan">+ Loan</button></div>
           <div id="ctLoans"></div>
-          <label class="check small muted" style="display:block;margin-top:12px"><input type="checkbox" id="ctShowEnded"> beendete / inaktive anzeigen</label>
+          <label class="check small muted" style="display:block;margin-top:12px"><input type="checkbox" id="ctShowEnded"> show ended / inactive</label>
         </div>
         <div class="card" id="ctDetailCard">
-          <div class="cardhead"><h3 id="ctTitle">Vertrag wählen</h3></div>
-          <div id="ctDetail" class="muted small">Links einen Vertrag oder Kredit anklicken – oder mit <b>+ Vertrag</b> einen neuen anlegen.</div>
+          <div class="cardhead"><h3 id="ctTitle">Select a contract</h3></div>
+          <div id="ctDetail" class="muted small">Click a contract or loan on the left – or use <b>+ Contract</b> to create a new one.</div>
         </div>
       </div>
     </section>
@@ -286,25 +287,25 @@
     <section id="view-abos" class="view" hidden>
       <div class="kpis" id="aboKpis"></div>
       <div class="card">
-        <div class="cardhead"><h3>Meine Abos</h3><button id="aboAdd">+ Abo</button></div>
-        <p class="muted small">Zahlungen werden über das Stichwort automatisch aus den Kontoauszügen zugeordnet. „Details“ zeigt Preisänderungen, Zahlungen und Belege.</p>
-        <div class="tablewrap"><table class="etable" id="aboTable"><thead><tr><th>Abo</th><th style="width:150px">Kategorie</th><th class="num" style="width:100px">Betrag</th>
-          <th style="width:130px">Intervall</th><th class="num" style="width:90px">/ Monat</th><th style="width:105px">nächste</th><th style="width:105px">letzte Zahlung</th>
-          <th style="width:60px">aktiv</th><th style="width:110px"></th></tr></thead><tbody id="aboBody"></tbody></table></div>
+        <div class="cardhead"><h3>My subscriptions</h3><button id="aboAdd">+ Subscription</button></div>
+        <p class="muted small">Payments are matched automatically from the bank statements via the keyword. “Details” shows price changes, payments and receipts.</p>
+        <div class="tablewrap"><table class="etable" id="aboTable"><thead><tr><th>Subscription</th><th style="width:150px">Category</th><th class="num" style="width:100px">Amount</th>
+          <th style="width:130px">Interval</th><th class="num" style="width:90px">/ month</th><th style="width:105px">next</th><th style="width:105px">last payment</th>
+          <th style="width:60px">active</th><th style="width:110px"></th></tr></thead><tbody id="aboBody"></tbody></table></div>
       </div>
       <div class="card">
-        <div class="cardhead"><h3>Erkannte wiederkehrende Zahlungen</h3><button id="aboRescan" class="linkbtn">neu suchen</button></div>
-        <p class="muted small">Belastungen aus den Kontoauszügen, die regelmässig mit gleichem Betrag wiederkommen – oder bekannte Abo-Anbieter. Übernehmen oder als „kein Abo“ ausblenden.</p>
+        <div class="cardhead"><h3>Detected recurring payments</h3><button id="aboRescan" class="linkbtn">search again</button></div>
+        <p class="muted small">Debits from the bank statements that recur regularly with the same amount – or known subscription providers. Adopt them or hide as “not a subscription”.</p>
         <div id="aboSuggest"></div>
       </div>
     </section>
 
-    <!-- Zähler -->
+    <!-- Meters -->
     <section id="view-meters" class="view" hidden>
       <div class="cardhead" style="margin-bottom:12px">
-        <div class="muted small">Zählerstände werden automatisch abgelesen und auf die Abrechnungsperiode hochgerechnet.</div>
-        <div class="row"><button data-mtnew="ams">+ Strom (AMS-Leser)</button><button data-mtnew="shelly">+ Wasser (Shelly, vormerken)</button>
-          <button data-mtnew="ha">+ Home Assistant</button><button data-mtnew="manual">+ von Hand</button></div>
+        <div class="muted small">Meter readings are taken automatically and extrapolated to the billing period.</div>
+        <div class="row"><button data-mtnew="ams">+ Electricity (AMS reader)</button><button data-mtnew="shelly">+ Water (Shelly, planned)</button>
+          <button data-mtnew="ha">+ Home Assistant</button><button data-mtnew="manual">+ Manual</button></div>
       </div>
       <div class="kpis" id="mtKpis"></div>
       <div id="mtList"></div>
@@ -314,52 +315,49 @@
     <section id="view-income" class="view" hidden>
       <div class="grid2">
         <div class="card">
-          <h3 id="incFormTitle">Einnahme erfassen</h3>
+          <h3 id="incFormTitle">Add income</h3>
           <form id="incForm" class="form">
             <input type="hidden" name="income_id">
-            <label>Beschreibung<input name="description" required placeholder="z.B. Lohn"></label>
+            <label>Description<input name="description" required placeholder="e.g. Salary"></label>
             <div class="row">
-              <label>Betrag<input name="amount" type="number" step="0.05" required></label>
-              <label>Datum / ab<input name="date" type="date" required></label>
+              <label>Amount<input name="amount" type="number" step="0.05" required></label>
+              <label>Date / from<input name="date" type="date" required></label>
             </div>
-            <label class="check"><input name="recurring" type="checkbox"> monatlich wiederkehrend</label>
-            <label class="endDate" hidden>bis (optional)<input name="end_date" type="date"></label>
+            <label class="check"><input name="recurring" type="checkbox"> repeats monthly</label>
+            <label class="endDate" hidden>until (optional)<input name="end_date" type="date"></label>
             <div class="row">
-              <button type="submit" class="primary">Speichern</button>
-              <button type="button" id="incCancel" hidden>Abbrechen</button>
+              <button type="submit" class="primary">Save</button>
+              <button type="button" id="incCancel" hidden>Cancel</button>
             </div>
           </form>
         </div>
         <div class="card">
-          <h3>Im gewählten Monat</h3>
+          <h3>In the selected month</h3>
           <div id="incMonth"></div>
         </div>
       </div>
       <div class="card">
-        <div class="cardhead"><h3>Lohnabrechnungen</h3><div class="row"><select id="psYear"></select><button id="psParseNew">Neue einlesen</button></div></div>
-        <p class="muted small">Lohnabrechnungen aus Paperless (Titel mit „Lohnabrechnung“, oder Dokumenttyp/Tag unter Einstellungen → Vormerkungen &amp; Lohn).
-          Der ausbezahlte Betrag wird mit der Gutschrift auf dem Konto abgeglichen; fehlt die Gutschrift noch, zählt der Betrag aus der Abrechnung.</p>
+        <div class="cardhead"><h3>Payslips</h3><div class="row"><select id="psYear"></select><button id="psParseNew">Import new</button></div></div>
+        <p class="muted small">Payslips from Paperless (title containing “Lohnabrechnung”, or document type/tag under Settings → Planned items &amp; salary). The paid-out amount is matched against the credit on the account; if the credit is still missing, the amount from the payslip counts.</p>
         <div id="psTotals" class="ps-totals"></div>
-        <div class="tablewrap"><table class="etable" id="psTable"><thead><tr><th style="width:80px">Monat</th><th>Person · Arbeitgeber</th>
-          <th class="num">Brutto</th><th class="num">Abzüge</th><th class="num">Netto</th><th class="num">ausbezahlt</th><th style="width:120px">Konto</th></tr></thead>
+        <div class="tablewrap"><table class="etable" id="psTable"><thead><tr><th style="width:80px">Month</th><th>Person · Employer</th>
+          <th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net</th><th class="num">paid out</th><th style="width:120px">Account</th></tr></thead>
           <tbody id="psBody"></tbody></table></div>
       </div>
       <div class="card">
-        <div class="cardhead"><h3>Automatisch aus Kontoauszügen</h3><button id="irAdd">+ Regel</button></div>
-        <p class="muted small">Gutschriften mit diesem Stichwort (z.B. Name des Arbeitgebers) zählen als Einnahme. Solange sie im laufenden Monat
-          noch fehlt, rechnet die App mit dem <b>erwarteten Betrag</b> – so stimmt „Rest vom Lohn“ auch vor dem Zahltag.
-          Den Lohn dann <b>nicht zusätzlich</b> unten als wiederkehrende Einnahme erfassen.</p>
-        <div class="tablewrap"><table class="etable" id="irTable"><thead><tr><th>Stichwort in der Gutschrift</th><th style="width:160px">Bezeichnung</th>
-          <th class="num" style="width:130px">erwartet CHF</th><th class="num" style="width:100px">Zahltag</th><th style="width:70px">aktiv</th><th style="width:70px"></th></tr></thead>
+        <div class="cardhead"><h3>Automatically from bank statements</h3><button id="irAdd">+ Rule</button></div>
+        <p class="muted small">Credits containing this keyword (e.g. the employer's name) count as income. As long as it is still missing in the current month, the app uses the <b>expected amount</b> – so “Left of salary” is right even before payday. Then <b>don't</b> also enter the salary below as recurring income.</p>
+        <div class="tablewrap"><table class="etable" id="irTable"><thead><tr><th>Keyword in the credit</th><th style="width:160px">Label</th>
+          <th class="num" style="width:130px">expected</th><th class="num" style="width:100px">Payday</th><th style="width:70px">active</th><th style="width:70px"></th></tr></thead>
           <tbody id="irBody"></tbody></table></div>
-        <h4 style="margin-top:16px">Gutschriften im gewählten Monat</h4>
+        <h4 style="margin-top:16px">Credits in the selected month</h4>
         <div id="irCredits"></div>
       </div>
       <div class="card">
-        <h3>Von Hand erfasste Einnahmen</h3>
+        <h3>Manually entered income</h3>
         <div class="tablewrap">
           <table class="table">
-            <thead><tr><th>Beschreibung</th><th>Datum</th><th>Art</th><th class="num">Betrag</th><th></th></tr></thead>
+            <thead><tr><th>Description</th><th>Date</th><th>Type</th><th class="num">Amount</th><th></th></tr></thead>
             <tbody id="incBody"></tbody>
           </table>
         </div>
@@ -368,169 +366,169 @@
 
     <!-- Einstellungen -->
     <section id="view-settings" class="view" hidden>
-      <select class="set-mobile" id="setMobile" aria-label="Rubrik"></select>
+      <select class="set-mobile" id="setMobile" aria-label="Section"></select>
       <div class="set-wrap">
         <nav class="set-nav" id="setNav">
-          <input type="search" id="setSearch" placeholder="Einstellung suchen …">
+          <input type="search" id="setSearch" placeholder="Search settings …">
           <div id="setLinks"></div>
         </nav>
         <div id="setPanels">
 
-          <div class="set-panel" data-panel="status" data-title="Verbindung & Status" data-ico="🔌">
-            <div id="setStatus" class="muted small">Prüfe Verbindungen …</div>
+          <div class="set-panel" data-panel="status" data-title="Connection &amp; status" data-ico="🔌">
+            <div id="setStatus" class="muted small">Checking connections …</div>
           </div>
 
           <div class="set-panel" data-panel="budget" data-title="Budget" data-ico="📊" hidden>
             <div class="card">
-              <div class="cardhead"><h3>Budget-Kategorien (Paperless-Tags)</h3><input id="tagSearch" type="search" placeholder="Tags filtern …"></div>
-              <p class="muted small">Markierte Tags gelten als Kategorie. Hat ein Dokument mehrere, zählt der oberste. Monatsbudget leer lassen = kein Limit.</p>
+              <div class="cardhead"><h3>Budget categories (Paperless tags)</h3><input id="tagSearch" type="search" placeholder="Filter tags …"></div>
+              <p class="muted small">Ticked tags count as categories. If a document has several, the top one counts. Leave the monthly budget empty = no limit.</p>
               <div id="catSettings" class="catsettings"></div>
             </div>
             <div class="card">
-              <h3>Nie im Budget berücksichtigen</h3>
-              <p class="muted small">Dokumente mit diesen Paperless-Tags zählen nie zum Budget (z.B. „Geschäft“). Einzelne Belege schliesst du direkt über das Häkchen aus.</p>
+              <h3>Never include in budget</h3>
+              <p class="muted small">Documents with these Paperless tags never count towards the budget (e.g. “Business”). Exclude individual receipts directly with the checkbox.</p>
               <div id="exclTags" class="chips"></div>
             </div>
             <div class="card">
-              <h3>Gründe für „nicht berücksichtigen“</h3>
-              <p class="muted small">Vorschläge, wenn du einen Beleg ausschliesst.</p>
-              <div class="field"><div class="lbl"><b>Gründe</b><span>einer pro Zeile</span></div><textarea id="setReasons" rows="5"></textarea></div>
+              <h3>Reasons for “exclude”</h3>
+              <p class="muted small">Suggestions when you exclude a receipt.</p>
+              <div class="field"><div class="lbl"><b>Reasons</b><span>one per line</span></div><textarea id="setReasons" rows="5"></textarea></div>
             </div>
           </div>
 
-          <div class="set-panel" data-panel="docs" data-title="Belege & Erfassen" data-ico="🧾" hidden>
+          <div class="set-panel" data-panel="docs" data-title="Receipts &amp; capture" data-ico="🧾" hidden>
             <div class="card">
-              <h3>Betrag in Paperless</h3>
-              <div class="field"><div class="lbl"><b>Betragsfeld</b><span>Custom Field vom Typ Währung mit dem Rechnungsbetrag</span></div><div><select id="setAmountField"></select></div></div>
+              <h3>Amount in Paperless</h3>
+              <div class="field"><div class="lbl"><b>Amount field</b><span>Custom field of type currency holding the invoice amount</span></div><div><select id="setAmountField"></select></div></div>
             </div>
             <div class="card">
-              <h3>„Erfassen“-Ansicht eingrenzen</h3>
-              <p class="muted small">Welche Dokumente ohne Betrag sollen zum Nacherfassen erscheinen? Nichts gewählt = alle Dokumente des Monats.</p>
-              <div class="field"><div class="lbl"><b>Dokumenttypen</b></div><div id="reviewTypes" class="chips"></div></div>
+              <h3>Limit the “Capture” view</h3>
+              <p class="muted small">Which documents without an amount should show up for capturing? Nothing selected = all documents of the month.</p>
+              <div class="field"><div class="lbl"><b>Document types</b></div><div id="reviewTypes" class="chips"></div></div>
               <div class="field"><div class="lbl"><b>Tags</b></div><div id="reviewTags" class="chips"></div></div>
             </div>
           </div>
 
-          <div class="set-panel" data-panel="bank" data-title="Bank & Abgleich" data-ico="🏦" hidden>
+          <div class="set-panel" data-panel="bank" data-title="Bank &amp; reconciliation" data-ico="🏦" hidden>
             <div class="card">
-              <h3>Kontoauszüge erkennen</h3>
-              <div class="field"><div class="lbl"><b>Dokumenttypen</b><span>Dokumente dieses Typs werden als Kontoauszug gelesen</span></div><div id="stTypes" class="chips"></div></div>
-              <div class="field"><div class="lbl"><b>oder Tags</b><span>optional</span></div><div id="stTags" class="chips"></div></div>
-              <div class="field"><div class="lbl"><b>Zeitfenster</b><span>Rechnung höchstens so viele Tage vor der Zahlung</span></div><div><input id="matchWindow" type="number" min="5" max="365" step="5" style="width:90px"> Tage</div></div>
+              <h3>Recognise bank statements</h3>
+              <div class="field"><div class="lbl"><b>Document types</b><span>Documents of this type are read as bank statements</span></div><div id="stTypes" class="chips"></div></div>
+              <div class="field"><div class="lbl"><b>or tags</b><span>optional</span></div><div id="stTags" class="chips"></div></div>
+              <div class="field"><div class="lbl"><b>Time window</b><span>Invoice at most this many days before the payment</span></div><div><input id="matchWindow" type="number" min="5" max="365" step="5" style="width:90px"> days</div></div>
             </div>
             <div class="card">
-              <h3>Bei einem Treffer in Paperless setzen</h3>
-              <div class="field"><div class="lbl"><b>Tag</b><span>wird an die bezahlte Rechnung gehängt</span></div><div><select id="setPaidTag"></select></div></div>
-              <div class="field"><div class="lbl"><b>Datumsfeld</b><span>bekommt das Zahlungsdatum</span></div><div><select id="setPaidField"></select></div></div>
+              <h3>On a match, set in Paperless</h3>
+              <div class="field"><div class="lbl"><b>Tag</b><span>is attached to the paid invoice</span></div><div><select id="setPaidTag"></select></div></div>
+              <div class="field"><div class="lbl"><b>Date field</b><span>receives the payment date</span></div><div><select id="setPaidField"></select></div></div>
             </div>
             <div class="card">
-              <h3>Regeln (Händler → Kategorie / Fahrzeug)</h3>
-              <p class="muted small">Gilt für Buchungen ohne Rechnung. Das Stichwort wird im Händler, im Buchungstext und in der Karten-Nr. gesucht; mehrere Begriffe mit „+“ verbinden, z.B. <i>Tankomat + 1234</i>.</p>
+              <h3>Rules (merchant → category / vehicle)</h3>
+              <p class="muted small">Applies to transactions without an invoice. The keyword is searched in the merchant, the booking text and the card no.; join several terms with “+”, e.g. <i>Tankomat + 1234</i>.</p>
               <form id="ruleForm" class="ruleform">
-                <input name="keyword" placeholder="z.B. MIGROL" required>
+                <input name="keyword" placeholder="e.g. TotalEnergies" required>
                 <select name="category"></select>
                 <select name="vehicle"></select>
-                <button type="submit">Hinzufügen</button>
+                <button type="submit">Add</button>
               </form>
               <div id="ruleList"></div>
             </div>
           </div>
 
-          <div class="set-panel" data-panel="plan" data-title="Vormerkungen & Lohn" data-ico="🛒" hidden>
+          <div class="set-panel" data-panel="plan" data-title="Planned items &amp; salary" data-ico="🛒" hidden>
             <div class="card">
-              <h3>Bestellungen vormerken</h3>
-              <p class="muted small">Bestellbestätigungen mit diesem Tag (z.B. per Paperless-Mail-Regel) werden in der Übersicht vorgemerkt, bis Rechnung oder Abbuchung da ist. Sie zählen nie als Ausgabe.</p>
-              <div class="field"><div class="lbl"><b>Tag für Bestellungen</b></div><div class="row"><select id="setOrderTag"></select><button id="setOrderTagCreate" class="linkbtn" hidden>in Paperless anlegen</button></div></div>
-              <div class="field"><div class="lbl"><b>Rechnung erwartet nach</b><span>Tage nach der Bestellung</span></div><div><input id="setExpectDays" type="number" min="1" max="120" style="width:90px"> Tage</div></div>
+              <h3>Track orders</h3>
+              <p class="muted small">Order confirmations with this tag (e.g. via a Paperless mail rule) are noted on the overview until the invoice or debit arrives. They never count as an expense.</p>
+              <div class="field"><div class="lbl"><b>Tag for orders</b></div><div class="row"><select id="setOrderTag"></select><button id="setOrderTagCreate" class="linkbtn" hidden>create in Paperless</button></div></div>
+              <div class="field"><div class="lbl"><b>Invoice expected after</b><span>days after the order</span></div><div><input id="setExpectDays" type="number" min="1" max="120" style="width:90px"> days</div></div>
             </div>
             <div class="card">
-              <h3>Lohnabrechnungen erkennen</h3>
-              <p class="muted small">Dokumente mit „Lohnabrechnung“ im Titel werden immer erkannt. Zusätzlich:</p>
-              <div class="field"><div class="lbl"><b>Dokumenttypen</b></div><div id="psTypes" class="chips"></div></div>
-              <div class="field"><div class="lbl"><b>oder Tags</b></div><div id="psTags" class="chips"></div></div>
+              <h3>Recognise payslips</h3>
+              <p class="muted small">Documents with “Lohnabrechnung” in the title are always recognised. Additionally:</p>
+              <div class="field"><div class="lbl"><b>Document types</b></div><div id="psTypes" class="chips"></div></div>
+              <div class="field"><div class="lbl"><b>or tags</b></div><div id="psTags" class="chips"></div></div>
             </div>
             <div class="card">
-              <h3>Lohn</h3>
-              <p class="muted small">„Rest vom Lohn“ rechnet mit den Einnahmen des Monats. Den Lohn als wiederkehrende Einnahme unter <a href="#" data-goto="income">Einnahmen</a> erfassen.</p>
+              <h3>Salary</h3>
+              <p class="muted small">“Left of salary” uses the month's income. Record the salary as recurring income – see the <a href="#" data-goto="income">Income</a> tab.</p>
             </div>
           </div>
 
-          <div class="set-panel" data-panel="vehicles" data-title="Fahrzeuge" data-ico="🚗" hidden>
+          <div class="set-panel" data-panel="vehicles" data-title="Vehicles" data-ico="🚗" hidden>
             <div class="card">
-              <div class="cardhead"><h3>Fahrzeuge</h3><button id="vehAdd">+ Fahrzeug</button></div>
-              <p class="muted small">Kosten kommen aus Tankkarten-Rechnungen (über die Karten-Nr.), Paperless-Belegen mit dem Fahrzeug-Tag und Bankbuchungen, die im Abgleich (oder per Regel) dem Fahrzeug zugeordnet sind. Kilometer aus Traccar.</p>
+              <div class="cardhead"><h3>Vehicles</h3><button id="vehAdd">+ Vehicle</button></div>
+              <p class="muted small">Costs come from fuel card invoices (via card no.), Paperless receipts with the vehicle tag and bank transactions assigned to the vehicle in reconciliation (or by rule). Kilometres from Traccar.</p>
               <div id="vehSettings"></div>
             </div>
             <div class="card">
-              <h3>Tankkarten-Rechnungen erkennen</h3>
-              <div class="field"><div class="lbl"><b>Korrespondent</b><span>z.B. Vögtlin-Meyer</span></div><div id="fuelCorr" class="chips"></div></div>
-              <div class="field"><div class="lbl"><b>oder Tag</b></div><div id="fuelTags" class="chips"></div></div>
+              <h3>Recognise fuel card invoices</h3>
+              <div class="field"><div class="lbl"><b>Correspondent</b><span>e.g. Vögtlin-Meyer</span></div><div id="fuelCorr" class="chips"></div></div>
+              <div class="field"><div class="lbl"><b>or tag</b></div><div id="fuelTags" class="chips"></div></div>
             </div>
             <div class="card">
-              <h3>Parkingpay-Auszüge erkennen</h3>
-              <p class="muted small">Die Parkvorgänge werden über das <b>Kennzeichen</b> dem Fahrzeug zugeordnet und zählen zu dessen Kosten.
-                Im Budget zählt weiterhin die Zahlung an Parkingpay (Aufladung bzw. Rechnung) – darum die Aufladungen <b>keinem Fahrzeug</b> zuordnen.</p>
-              <div class="field"><div class="lbl"><b>Korrespondent</b><span>z.B. Digitalparking AG – die Monatsberichte aus dem Parkingpay-Konto in Paperless ablegen</span></div><div id="parkCorr" class="chips"></div></div>
-              <div class="field"><div class="lbl"><b>oder Tag</b></div><div id="parkTags" class="chips"></div></div>
+              <h3>Recognise Parkingpay statements</h3>
+              <p class="muted small">Parking sessions are assigned to the vehicle via the <b>licence plate</b> and count towards its costs. In the budget the payment to Parkingpay (top-up or invoice) still counts – so top-ups must have <b>no vehicle</b> assigned.</p>
+              <div class="field"><div class="lbl"><b>Correspondent</b><span>e.g. Digitalparking AG – store the monthly reports from the Parkingpay account in Paperless</span></div><div id="parkCorr" class="chips"></div></div>
+              <div class="field"><div class="lbl"><b>or tag</b></div><div id="parkTags" class="chips"></div></div>
             </div>
           </div>
 
-          <div class="set-panel" data-panel="contracts" data-title="Verträge" data-ico="📄" hidden>
+          <div class="set-panel" data-panel="contracts" data-title="Contracts" data-ico="📄" hidden>
             <div class="card">
-              <h3>Kündigungstermine</h3>
-              <div class="field"><div class="lbl"><b>Hervorheben ab</b><span>so viele Tage vor dem Termin</span></div><div><input id="setNoticeDays" type="number" min="7" max="365" style="width:90px"> Tage</div></div>
-              <div class="field"><div class="lbl"><b>Zahl am Tab ab</b><span>dringend, so viele Tage vor dem Termin</span></div><div><input id="setBadgeDays" type="number" min="1" max="180" style="width:90px"> Tage</div></div>
+              <h3>Cancellation deadlines</h3>
+              <div class="field"><div class="lbl"><b>Highlight from</b><span>this many days before the deadline</span></div><div><input id="setNoticeDays" type="number" min="7" max="365" style="width:90px"> days</div></div>
+              <div class="field"><div class="lbl"><b>Show number on tab from</b><span>urgent, this many days before the deadline</span></div><div><input id="setBadgeDays" type="number" min="1" max="180" style="width:90px"> days</div></div>
             </div>
             <div class="card">
-              <h3>Kategorien</h3>
-              <div class="field"><div class="lbl"><b>Verträge</b><span>eine pro Zeile</span></div><textarea id="setCtCats" rows="6"></textarea></div>
-              <div class="field"><div class="lbl"><b>Kredite</b><span>eine pro Zeile</span></div><textarea id="setLoanCats" rows="4"></textarea></div>
-              <div class="field"><div class="lbl"><b>Abos</b><span>eine pro Zeile</span></div><textarea id="setAboCats" rows="5"></textarea></div>
+              <h3>Categories</h3>
+              <div class="field"><div class="lbl"><b>Contracts</b><span>eine pro Zeile</span></div><textarea id="setCtCats" rows="6"></textarea></div>
+              <div class="field"><div class="lbl"><b>Loans</b><span>eine pro Zeile</span></div><textarea id="setLoanCats" rows="4"></textarea></div>
+              <div class="field"><div class="lbl"><b>Subscriptions</b><span>eine pro Zeile</span></div><textarea id="setAboCats" rows="5"></textarea></div>
             </div>
           </div>
 
-          <div class="set-panel" data-panel="realestate" data-title="Immobilien & Projekte" data-ico="🏠" hidden>
+          <div class="set-panel" data-panel="realestate" data-title="Properties &amp; projects" data-ico="🏠" hidden>
             <div class="card">
-              <h3>Nebenkostenabrechnung</h3>
-              <div class="field"><div class="lbl"><b>Tag in Paperless</b><span>für abgelegte Abrechnungen (wird bei Bedarf angelegt)</span></div><div><input id="setNkTag"></div></div>
+              <h3>Utility cost statement</h3>
+              <div class="field"><div class="lbl"><b>Tag in Paperless</b><span>for filed statements (created if needed)</span></div><div><input id="setNkTag"></div></div>
             </div>
-            <div class="card"><h3>Häuser</h3><div id="setProps" class="muted small">–</div></div>
-            <div class="card"><h3>Projekte</h3><div id="setProjects" class="muted small">–</div></div>
+            <div class="card"><h3>Buildings</h3><div id="setProps" class="muted small">–</div></div>
+            <div class="card"><h3>Projects</h3><div id="setProjects" class="muted small">–</div></div>
           </div>
 
-          <div class="set-panel" data-panel="users" data-title="Benutzer & Rechte" data-ico="👥" hidden>
+          <div class="set-panel" data-panel="users" data-title="Users &amp; permissions" data-ico="👥" hidden>
             <div id="setUsers"></div>
           </div>
 
-          <div class="set-panel" data-panel="account" data-title="Mein Konto" data-ico="🔑" hidden>
+          <div class="set-panel" data-panel="account" data-title="My account" data-ico="🔑" hidden>
             <div class="card">
-              <h3>Passwort ändern</h3>
+              <h3>Change password</h3>
               <form id="pwForm" class="form" style="max-width:420px">
-                <label>Bisheriges Passwort<input name="old" type="password" autocomplete="current-password" required></label>
-                <label>Neues Passwort (mind. 8 Zeichen)<input name="new" type="password" autocomplete="new-password" minlength="8" required></label>
-                <label>Neues Passwort wiederholen<input name="new2" type="password" autocomplete="new-password" minlength="8" required></label>
-                <div class="row"><button class="primary">Passwort ändern</button></div>
+                <label>Current password<input name="old" type="password" autocomplete="current-password" required></label>
+                <label>New password (min. 8 characters)<input name="new" type="password" autocomplete="new-password" minlength="8" required></label>
+                <label>Repeat new password<input name="new2" type="password" autocomplete="new-password" minlength="8" required></label>
+                <div class="row"><button class="primary">Change password</button></div>
               </form>
             </div>
-            <div class="card"><h3>Meine Rechte</h3><div id="myPerms" class="muted small"></div></div>
+            <div class="card"><h3>My permissions</h3><div id="myPerms" class="muted small"></div></div>
+            <div class="card"><h3>Language</h3><select class="lang-switch" aria-label="Language"></select></div>
           </div>
 
-          <div class="set-panel" data-panel="data" data-title="Daten & Wartung" data-ico="💾" hidden>
+          <div class="set-panel" data-panel="data" data-title="Data &amp; maintenance" data-ico="💾" hidden>
             <div class="card">
               <h3>Backup</h3>
-              <p class="muted small">Alles, was die App selbst speichert (Kategorien, Budgets, Buchungen, Fahrzeuge, Häuser, Verträge …). Belege und Dokumente liegen in Paperless.</p>
-              <div class="field"><div class="lbl"><b>Backup herunterladen</b><span id="setLastBackup"></span></div><div><a class="btnlink" href="/api/backup" id="setBackup">Backup herunterladen</a></div></div>
-              <div class="field"><div class="lbl"><b>Backup einspielen</b><span>ersetzt alle Daten der App; die aktuelle Datenbank wird vorher gesichert</span></div><div><input type="file" id="setRestore" accept=".db"></div></div>
+              <p class="muted small">Everything the app stores itself (categories, budgets, transactions, vehicles, buildings, contracts …). Receipts and documents live in Paperless.</p>
+              <div class="field"><div class="lbl"><b>Download backup</b><span id="setLastBackup"></span></div><div><a class="btnlink" href="/api/backup" id="setBackup">Download backup</a></div></div>
+              <div class="field"><div class="lbl"><b>Restore backup</b><span>replaces all app data; the current database is backed up first</span></div><div><input type="file" id="setRestore" accept=".db"></div></div>
             </div>
             <div class="card">
-              <h3>Export (CSV für Excel)</h3>
-              <div class="field"><div class="lbl"><b>Jahr</b></div><div><select id="setExportYear"></select></div></div>
-              <div class="row" style="flex-wrap:wrap"><a class="btnlink" data-export="ausgaben">Ausgaben</a><a class="btnlink" data-export="buchungen">Bankbuchungen</a><a class="btnlink" data-export="vertraege">Verträge & Kredite</a></div>
+              <h3>Export (CSV for Excel)</h3>
+              <div class="field"><div class="lbl"><b>Year</b></div><div><select id="setExportYear"></select></div></div>
+              <div class="row" style="flex-wrap:wrap"><a class="btnlink" data-export="ausgaben">Expenses</a><a class="btnlink" data-export="buchungen">Bank transactions</a><a class="btnlink" data-export="vertraege">Contracts &amp; loans</a></div>
             </div>
             <div class="card">
-              <h3>Zwischenspeicher</h3>
-              <div class="field"><div class="lbl"><b>Paperless neu laden</b><span>nach neuen Tags, Feldern oder Korrespondenten</span></div><div><button id="setRefreshMeta">neu laden</button></div></div>
-              <div class="field"><div class="lbl"><b>Kilometer neu laden</b><span>Traccar-Werte neu abrufen</span></div><div><button id="setRefreshKm">neu laden</button></div></div>
+              <h3>Cache</h3>
+              <div class="field"><div class="lbl"><b>Reload Paperless</b><span>for new tags, fields or correspondents</span></div><div><button id="setRefreshMeta">reload</button></div></div>
+              <div class="field"><div class="lbl"><b>Reload kilometres</b><span>Fetch Traccar values again</span></div><div><button id="setRefreshKm">reload</button></div></div>
             </div>
           </div>
 
@@ -548,58 +546,58 @@
       <div id="dlgChips" class="chips"></div>
       <div class="row" style="justify-content:flex-end">
         <button type="button" id="dlgExtra" class="linkbtn" hidden></button>
-        <button value="cancel" formnovalidate>Abbrechen</button>
+        <button value="cancel" formnovalidate>Cancel</button>
         <button value="ok" class="primary" id="dlgOk">OK</button>
       </div>
     </form>
   </dialog>
   <dialog id="allocDlg">
     <div class="form">
-      <h3>Zuordnen</h3>
+      <h3>Assign</h3>
       <div class="muted small" id="alSub"></div>
       <div id="alExisting"></div>
-      <h4 style="margin-top:8px">Neue Zuordnung</h4>
-      <label>Ziel<select id="alTarget"></select></label>
+      <h4 style="margin-top:8px">New assignment</h4>
+      <label>Target<select id="alTarget"></select></label>
       <div class="row" id="alPropFields">
-        <label>Kostenart<select id="alCat"></select></label>
-        <label>Wohnung<select id="alUnit"></select></label>
+        <label>Cost type<select id="alCat"></select></label>
+        <label>Flat<select id="alUnit"></select></label>
       </div>
       <div class="row">
-        <label>Anteil<select id="alMode"><option value="percent">Prozent</option><option value="amount">Betrag CHF</option></select></label>
-        <label>Wert<input id="alValue" type="number" step="0.01" value="100"></label>
-        <label id="alQtyWrap">Menge<input id="alQty" type="number" step="0.01" placeholder="z.B. Liter"></label>
+        <label>Share<select id="alMode"><option value="percent">Percent</option><option value="amount">Amount</option></select></label>
+        <label>Value<input id="alValue" type="number" step="0.01" value="100"></label>
+        <label id="alQtyWrap">Quantity<input id="alQty" type="number" step="0.01" placeholder="e.g. litres"></label>
       </div>
-      <label>Notiz<input id="alNote" placeholder="optional"></label>
+      <label>Note<input id="alNote" placeholder="optional"></label>
       <div class="row" style="justify-content:flex-end">
-        <button id="alClose">Schliessen</button>
-        <button id="alSave" class="primary">Zuordnen</button>
+        <button id="alClose">Close</button>
+        <button id="alSave" class="primary">Assign</button>
       </div>
     </div>
   </dialog>
   <dialog id="searchDlg">
     <div class="form">
-      <h3 id="seTitle">Belege suchen</h3>
-      <input id="seInput" type="search" placeholder="Suchbegriff (Titel, Inhalt, Händler) …">
+      <h3 id="seTitle">Find receipts</h3>
+      <input id="seInput" type="search" placeholder="Search term (title, content, merchant) …">
       <div id="seResults" class="seresults"></div>
-      <div class="row" style="justify-content:flex-end"><button id="seClose">Schliessen</button></div>
+      <div class="row" style="justify-content:flex-end"><button id="seClose">Close</button></div>
     </div>
   </dialog>
   <dialog id="orderDlg">
     <form class="form" method="dialog" id="orderForm">
-      <h3 id="odTitle">Ausgabe vormerken</h3>
-      <p class="muted small">Zum Beispiel eine Bestellung, deren Rechnung oder Abbuchung noch kommt. Sobald sie da ist, wird die Vormerkung automatisch erledigt.</p>
-      <label>Händler / Shop<input name="merchant" required list="odMerchants" placeholder="z.B. Galaxus"></label>
+      <h3 id="odTitle">Plan an expense</h3>
+      <p class="muted small">For example an order whose invoice or debit is still to come. As soon as it arrives, the entry is completed automatically.</p>
+      <label>Merchant / shop<input name="merchant" required list="odMerchants" placeholder="e.g. Amazon"></label>
       <datalist id="odMerchants"></datalist>
-      <label>Was<input name="description" placeholder="z.B. Kopfhörer"></label>
+      <label>What<input name="description" placeholder="e.g. headphones"></label>
       <div class="row">
-        <label style="flex:1">Betrag CHF<input name="amount" type="number" step="0.05" inputmode="decimal"></label>
-        <label style="flex:1">Bestellt am<input name="date" type="date"></label>
-        <label style="flex:1">Erwartet am<input name="expected" type="date"></label>
+        <label style="flex:1">Amount<input name="amount" type="number" step="0.05" inputmode="decimal"></label>
+        <label style="flex:1">Ordered on<input name="date" type="date"></label>
+        <label style="flex:1">Expected on<input name="expected" type="date"></label>
       </div>
-      <label>Notiz<input name="note"></label>
+      <label>Note<input name="note"></label>
       <div class="row" style="justify-content:space-between">
-        <span><button type="button" class="linkbtn danger" id="odDelete" hidden>löschen</button></span>
-        <span class="row"><button value="cancel" formnovalidate>Abbrechen</button><button value="ok" class="primary">Speichern</button></span>
+        <span><button type="button" class="linkbtn danger" id="odDelete" hidden>delete</button></span>
+        <span class="row"><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Save</button></span>
       </div>
     </form>
   </dialog>

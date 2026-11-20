@@ -1,19 +1,19 @@
-"""Zähler (Strom, Wasser, Gas, Wärme): Zählerstände automatisch erfassen und die nächste Abrechnung hochrechnen.
+"""Meters (electricity, water, gas, heat): record meter readings automatically and project the next statement.
 
 Quellen
   ams            AMS-Leser (amsleser.no / AmsToMqttBridge): GET http://<ip>/data.json, Feld "ic" = Bezug kumuliert (kWh)
   http           beliebiges JSON, z.B. Shelly (Gen2: /rpc/Input.GetStatus?id=2 -> "counts.total" Impulse, Faktor 0.001 = m³)
-  homeassistant  Sensor in Home Assistant (HOMEASSISTANT_URL / HOMEASSISTANT_TOKEN in der .env)
-  manuell        Zählerstände von Hand
+  homeassistant  sensor in Home Assistant (HOMEASSISTANT_URL / HOMEASSISTANT_TOKEN in .env)
+  manuell        meter readings by hand
 
 Zuordnung
-  Zähler gehören einem Haus (= allgemein, z.B. Allgemeinstrom) oder einer Wohnung. In der Nebenkostenabrechnung erscheint
-  der Allgemein-Zähler bei seiner Kategorie in Klammern als „(erwartet CHF …)“ – abgerechnet wird weiterhin nach den Rechnungen.
+  Meters belong to a building (= general, e.g. common electricity) or a flat. In the utility statement
+  the general meter appears at its category in brackets as "(erwartet CHF …)" – billing is still based on the invoices.
 
-Prognose für die laufende Abrechnungsperiode
-  Verbrauch bisher = letzter Stand − Stand zu Periodenbeginn (Stand der letzten Rechnung oder erste Ablesung)
-  Rest der Periode = Verbrauch derselben Zeit im Vorjahr (falls Ablesungen vorhanden), sonst Tagesdurchschnitt × Resttage
-  Rechnung ≈ Verbrauch × Tarif + Grundgebühr × Monate;  Saldo = Rechnung − Akonto (bezahlt + noch fällig, aus dem Vertrag)
+Forecast for the current billing period
+  Consumption so far = last reading − reading at the start of the period (reading of the last invoice or first reading)
+  Rest of the period = consumption of the same time in the previous year (if readings exist), otherwise daily average × remaining days
+  Invoice ≈ consumption × tariff + base fee × months;  balance = invoice − advance payments (paid + still due, from the contract)
 """
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from fastapi.responses import Response
 
 from . import contracts_api as ct
 from . import main as core
+from .i18n import _t
 
 router = APIRouter()
 HA_URL = os.environ.get("HOMEASSISTANT_URL", "").rstrip("/")
@@ -84,7 +85,7 @@ async def fetch_value(m: dict) -> float:
         if src in ("ams", "http"):
             url = (m.get("url") or "").strip()
             if not url:
-                raise ValueError("Adresse fehlt")
+                raise ValueError(_t("Address is missing"))
             if not url.startswith("http"):
                 url = "http://" + url
             if src == "ams" and not url.rstrip("/").endswith(".json"):
@@ -97,15 +98,15 @@ async def fetch_value(m: dict) -> float:
                 raise ValueError("HOMEASSISTANT_URL / HOMEASSISTANT_TOKEN fehlen in der .env")
             r = await cl.get(f"{HA_URL}/api/states/{m.get('ha_entity')}", headers={"Authorization": f"Bearer {HA_TOKEN}"})
             if r.status_code == 404:
-                raise ValueError(f"Sensor {m.get('ha_entity')} gibt es in Home Assistant nicht")
+                raise ValueError(_t("Sensor {entity} does not exist in Home Assistant", entity=m.get('ha_entity')))
             r.raise_for_status()
             raw = r.json().get("state")
         else:
-            raise ValueError("manueller Zähler")
+            raise ValueError(_t("manual meter"))
     try:
         val = float(raw)
     except (TypeError, ValueError):
-        raise ValueError(f"kein Zahlenwert ({raw!r})")
+        raise ValueError(_t("no numeric value ({raw})", raw=repr(raw)))
     return round(val * float(m.get("factor") or 1) + float(m.get("value_offset") or 0), 4)
 
 
@@ -125,7 +126,7 @@ async def read_meter(m: dict, force: bool = False) -> Optional[float]:
     try:
         val = await fetch_value(m)
         _store(m["id"], val, m["source"])
-    except Exception as e:  # Zähler nicht erreichbar: merken, nicht abbrechen
+    except Exception as e:  # meter not reachable: remember, don't abort
         err = f"{type(e).__name__}: {e}"[:200]
     with core.db() as con:
         con.execute("UPDATE meters SET last_error = ?, last_try = ? WHERE id = ?", (err, time.time(), m["id"]))
@@ -174,8 +175,8 @@ def _near(rs: list[tuple[datetime, float]], d: datetime, tol_days: int = 6) -> O
 
 
 def consumption(m: dict, d0: date, d1: date) -> dict:
-    """Verbrauch zwischen Beginn d0 und Ende d1 (inkl.) für die Nebenkosten. Fehlt der Endstand (Periode läuft noch),
-    wird mit dem Tagesdurchschnitt hochgerechnet; fehlt der Anfangsstand, ist das Ergebnis unvollständig."""
+    """Consumption between start d0 and end d1 (inclusive) for the utility costs. If the closing reading is missing (period still running),
+    it is extrapolated with the daily average; if the opening reading is missing, the result is incomplete."""
     a_dt, b_dt = datetime(d0.year, d0.month, d0.day), datetime(d1.year, d1.month, d1.day) + timedelta(days=1)
     with core.db() as con:
         rs = _readings(con, m["id"], (d0 - timedelta(days=60)).isoformat())
@@ -187,17 +188,17 @@ def consumption(m: dict, d0: date, d1: date) -> dict:
         if abs((sd - d0).days) <= 3:
             start = (datetime(sd.year, sd.month, sd.day), float(m["start_reading"]))
     if not start:
-        out["missing"] = f"kein Zählerstand um den {d0.strftime('%d.%m.%Y')}"
+        out["missing"] = _t("no meter reading around {date}", date=d0.strftime('%d.%m.%Y'))
         return out
     end = _near(rs, b_dt, 3)
     if not end:
         last = rs[-1] if rs else None
         if not last or last[0] <= start[0] or last[0] > b_dt:
-            out["missing"] = f"kein Zählerstand um den {d1.strftime('%d.%m.%Y')}"
+            out["missing"] = _t("no meter reading around {date}", date=d1.strftime('%d.%m.%Y'))
             return out
         days = (last[0] - start[0]).total_seconds() / 86400
         if days < 7:
-            out["missing"] = "zu wenig Ablesungen für eine Hochrechnung"
+            out["missing"] = _t("not enough readings for a projection")
             return out
         daily = (last[1] - start[1]) / days
         end = (b_dt, last[1] + daily * (b_dt - last[0]).total_seconds() / 86400)
@@ -216,7 +217,7 @@ def consumption(m: dict, d0: date, d1: date) -> dict:
     out.update(complete=amount is not None, start=[start[0].isoformat(), round(start[1], 3)], end=[end[0].isoformat(), round(end[1], 3)],
                quantity=round(qty, 2), months=round(months, 2), amount=amount)
     if amount is None:
-        out["missing"] = "Tarif fehlt beim Zähler"
+        out["missing"] = _t("Tariff is missing on the meter")
     return out
 
 
@@ -254,7 +255,7 @@ def projection(m: dict, today: Optional[date] = None) -> dict:
     p0, p1 = _period(m, today)
     with core.db() as con:
         rs = _readings(con, m["id"], (p0 - timedelta(days=400)).isoformat())
-    out: dict = {"period": [p0.isoformat(), p1.isoformat()], "status": "keine Daten"}
+    out: dict = {"period": [p0.isoformat(), p1.isoformat()], "status": _t("no data")}
     if not rs:
         return out
     latest = rs[-1]
@@ -275,10 +276,10 @@ def projection(m: dict, today: Optional[date] = None) -> dict:
     rest_days = max(0.0, (end_dt - latest[0]).total_seconds() / 86400)
     out.update(start_value=start[1], start_ts=start[0].isoformat(), so_far=round(so_far, 2), days=round(days, 1), rest_days=round(rest_days, 1))
     if days < 3 or so_far < 0:
-        out["status"] = "zu wenig Daten" if so_far >= 0 else "Zählerstand kleiner als zu Beginn – Startwert prüfen"
+        out["status"] = _t("not enough data") if so_far >= 0 else _t("Meter reading lower than at the start – check the start value")
         return out
     daily = so_far / days
-    # Vorjahr: gleicher Restzeitraum ein Jahr früher
+    # previous year: the same remaining period one year earlier
     py_a, py_b = _near(rs, latest[0] - timedelta(days=365)), _near(rs, end_dt - timedelta(days=365))
     if py_a and py_b and py_b[1] >= py_a[1] and rest_days > 1:
         rest, method = py_b[1] - py_a[1], "wie Vorjahr"
@@ -293,7 +294,7 @@ def projection(m: dict, today: Optional[date] = None) -> dict:
     out.update(status="ok", daily=round(daily, 3), rest=round(rest, 2), total=round(total, 1), method=method, cost=cost, akonto=ak,
                balance=round(cost - ak["total"], 2) if cost is not None and ak else None,
                progress=round(min(1.0, days / ((end_dt - start[0]).total_seconds() / 86400)), 3))
-    # Verbrauch pro Monat (für das Diagramm)
+    # consumption per month (for the chart)
     monthly = []
     mth = date(p0.year, p0.month, 1)
     while mth <= today and mth <= p1:
@@ -311,7 +312,7 @@ def projection(m: dict, today: Optional[date] = None) -> dict:
 def _meter(con, mid: int) -> dict:
     r = con.execute("SELECT * FROM meters WHERE id = ?", (mid,)).fetchone()
     if not r:
-        raise HTTPException(404, "Zähler nicht gefunden")
+        raise HTTPException(404, _t("Meter not found"))
     return dict(r)
 
 
@@ -339,7 +340,7 @@ async def meters_overview():
 @router.post("/api/meters", status_code=201)
 def add_meter(body: dict = Body(...)):
     data = {k: body[k] for k in FIELDS if k in body}
-    data.setdefault("name", "Zähler")
+    data.setdefault("name", _t("Meter"))
     data.setdefault("unit", KINDS.get(data.get("kind", "strom"), ("kWh",))[0])
     with core.db() as con:
         cur = con.execute(f"INSERT INTO meters ({', '.join(data)}) VALUES ({', '.join('?' * len(data))})", list(data.values()))
@@ -376,18 +377,18 @@ async def read_now(mid: int):
     with core.db() as con:
         m = _meter(con, mid)
     if m["source"] == "manuell":
-        raise HTTPException(400, "Manueller Zähler – Stand von Hand erfassen")
+        raise HTTPException(400, _t("Manual meter – enter the reading by hand"))
     val = await read_meter(m, force=True)
     with core.db() as con:
         err = con.execute("SELECT last_error FROM meters WHERE id = ?", (mid,)).fetchone()[0]
     if val is None:
-        raise HTTPException(502, f"Zähler nicht lesbar: {err}")
+        raise HTTPException(502, _t("Meter not readable: {err}", err=err))
     return {"value": val}
 
 
 @router.post("/api/meters/test")
 async def test_source(body: dict = Body(...)):
-    """Quelle ausprobieren, ohne zu speichern."""
+    """Test the source without saving."""
     m = {"source": body.get("source"), "url": body.get("url"), "json_path": body.get("json_path"), "ha_entity": body.get("ha_entity"),
          "factor": body.get("factor") or 1, "value_offset": body.get("value_offset") or 0}
     try:
@@ -398,12 +399,12 @@ async def test_source(body: dict = Body(...)):
 
 @router.post("/api/meters/{mid}/readings", status_code=201)
 def add_reading(mid: int, body: dict = Body(...)):
-    """Zählerstand von Hand (z.B. Wasserzähler ablesen, Stand auf der Rechnung)."""
+    """Meter reading by hand (e.g. read the water meter, reading on the invoice)."""
     try:
         val = float(body["value"])
         ts = datetime.fromisoformat(body.get("date") or datetime.now().isoformat())
     except (KeyError, ValueError):
-        raise HTTPException(400, "Datum und Zählerstand angeben")
+        raise HTTPException(400, _t("Enter date and meter reading"))
     with core.db() as con:
         _meter(con, mid)
     _store(mid, val, "manuell", ts)

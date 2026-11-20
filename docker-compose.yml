@@ -8,8 +8,8 @@ services:
     env_file: .env
     volumes:
       - ./data:/data
-    # Läuft Paperless im selben Docker-Host: dem Paperless-Netzwerk beitreten
-    # und PAPERLESS_URL auf den Container-Namen setzen (z.B. http://paperless-webserver:8000).
+    # If Paperless runs on the same Docker host: join the Paperless network
+    # and set PAPERLESS_URL to the container name (e.g. http://paperless-webserver:8000).
     # networks:
     #   - paperless
 

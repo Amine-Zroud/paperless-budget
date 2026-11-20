@@ -1,20 +1,20 @@
-"""Parkingpay-Auszüge (Digitalparking AG) lesen: Parkvorgänge mit Datum, Kennzeichen/Badge, Ort und Betrag.
+"""Read Parkingpay statements (Digitalparking AG): parking sessions with date, licence plate/badge, place and amount.
 
-1) Kontoauszug von parkingpay.ch (Monatsbericht): ein Block pro Buchung
+1) account statement from parkingpay.ch (monthly report): one block per booking
        03.09.2026   Parkvorgang                     -2.50
                     Musterstrasse 12, Musterstadt
                     03.09.2026 - 15:06
                     03.09.2026 - 15:41
-                    AG123456 (Anna)           <- Kennzeichen oder Badge-Nr., in Klammern die Person
+                    AG123456 (Anna)           <- licence plate or badge no., the person in brackets
                     Ref. 600000001
                     MWST-Code: B
-   Je nach Textextraktion stehen Datum, Beschreibung und Betrag auch auf eigenen Zeilen.
-   Einzahlungen, Saldo- und Totalzeilen werden übersprungen.
+   Depending on the text extraction, date, description and amount may also be on separate lines.
+   Top-ups, balance and total lines are skipped.
 
 2) Unbekanntes Layout – tolerant:
-  * eine Buchung = Zeile (oder bis zu drei Zeilen) mit Datum, Schweizer Kennzeichen und Betrag
-  * Aufladungen, Gutschriften, Saldo- und Totalzeilen werden übersprungen
-  * ohne erkennbares Kennzeichen wird der Parkvorgang trotzdem übernommen (später von Hand zuordnen)
+  * one booking = line (or up to three lines) with date, Swiss licence plate and amount
+  * top-ups, credits, balance and total lines are skipped
+  * without a recognisable licence plate the parking session is still imported (assign by hand later)
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ NOISE_RE = re.compile(r"\bCHF\b|\bFr\.?|\bSFr\.?|\b\d{6,}\b|[|•]")
 class ParkingEntry:
     date: str                  # ISO (Buchungsdatum)
     time: Optional[str]        # Beginn
-    plate: Optional[str]       # normalisiert, z.B. "ZH123456" – oder Badge-Nr.
+    plate: Optional[str]       # normalised, e.g. "ZH123456" – or badge no.
     location: str
     amount: float
     hash: str
@@ -60,7 +60,7 @@ PP_STOP = re.compile(r"^(total bewegungen|neuer saldo|mwst-übersicht|digitalpar
 
 
 def _pp_header(lines: list[str], i: int) -> Optional[tuple[str, str, float, int]]:
-    """(Datum, Beschreibung, Betrag, Anzahl Zeilen) wenn bei Zeile i eine Buchung beginnt."""
+    """(date, description, amount, number of lines) if a booking starts at line i."""
     m = PP_HEAD.match(lines[i])
     if m and not PP_STAMP.match(lines[i]):
         return m.group(1), m.group(2).strip(), _amount(m.group(3)), 1
@@ -94,7 +94,7 @@ def parse_parkingpay(text: str) -> list[ParkingEntry]:
             elif im and not ident:
                 ident, driver = re.sub(r"\s", "", im.group(1)), (im.group(2) or "").strip() or None
             elif l.lower().startswith(("ref.", "mwst-code", "mwst code")) or PP_PAYMETHOD.match(l):
-                pass        # Referenzen, MWST-Code, Zahlungsart einer Einzahlung (kann bei der Textextraktion verrutschen)
+                pass        # references, VAT code, payment method of a top-up (can shift during text extraction)
             elif loc is None:
                 loc = l
             else:
@@ -127,7 +127,7 @@ def norm_plate(s: str) -> str:
 
 
 def plate_matches(plate: Optional[str], keys: str) -> bool:
-    """Kennzeichen des Fahrzeugs (kommagetrennt) mit dem Kennzeichen des Parkvorgangs vergleichen."""
+    """Compare the vehicle's licence plates (comma-separated) with the licence plate of the parking session."""
     p = norm_plate(plate or "")
     return bool(p) and any(p == norm_plate(k) for k in (keys or "").split(",") if k.strip())
 
@@ -161,7 +161,7 @@ def parse_generic(text: str) -> list[ParkingEntry]:
         if not dm or SKIP_RE.search(line):
             i += 1
             continue
-        # Buchung kann über bis zu drei Zeilen gehen (Ort/Kennzeichen/Betrag umbrochen)
+        # a booking can span up to three lines (place/licence plate/amount wrapped)
         block, j = line, i
         while j + 1 < len(lines) and j - i < 2 and not (PLATE_RE.search(block) and AMOUNT_RE.search(block)):
             nxt = lines[j + 1]
@@ -169,7 +169,7 @@ def parse_generic(text: str) -> list[ParkingEntry]:
                 break
             block += " " + nxt
             j += 1
-        # Datum/Zeit aus dem Text entfernen, bevor Beträge gesucht werden (sonst wird "12.10" zum Betrag)
+        # remove date/time from the text before searching for amounts (otherwise "12.10" becomes an amount)
         rest = DATE_RE.sub(" ", block)
         times = TIME_RE.findall(rest)
         rest_nt = TIME_RE.sub(" ", rest)

@@ -1,4 +1,4 @@
-"""API: Liegenschaften (Nebenkosten, Mietzinseingänge) und Projekte."""
+"""API: properties (utility costs, rent received) and projects."""
 from __future__ import annotations
 
 import logging
@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import FileResponse, Response
+from .i18n import _t
 
 from . import main as core
 from . import realestate as rx
@@ -30,10 +31,10 @@ with core.db() as _con:
         );
         """
     )
-    for _t, _c, _ty in [("properties", "oil_category_id", "INTEGER"), ("nk_statements", "interim", "INTEGER"),
+    for _tbl, _c, _ty in [("properties", "oil_category_id", "INTEGER"), ("nk_statements", "interim", "INTEGER"),
                         ("heating_stock", "kind", "TEXT"), ("heating_stock", "amount", "REAL")]:
-        if _c not in {r["name"] for r in _con.execute(f"PRAGMA table_info({_t})")}:
-            _con.execute(f"ALTER TABLE {_t} ADD COLUMN {_c} {_ty}")
+        if _c not in {r["name"] for r in _con.execute(f"PRAGMA table_info({_tbl})")}:
+            _con.execute(f"ALTER TABLE {_tbl} ADD COLUMN {_c} {_ty}")
 FILES_DIR = Path(os.environ.get("FILES_DIR", str(Path(core.DB_PATH).parent / "abrechnungen")))
 
 # ---------------------------------------------------------------- generisches CRUD
@@ -68,7 +69,7 @@ def _row(table: str, rid: int) -> dict:
     with core.db() as con:
         r = con.execute(f"SELECT * FROM {table} WHERE id = ?", (rid,)).fetchone()
     if not r:
-        raise HTTPException(404, "Nicht gefunden")
+        raise HTTPException(404, _t("Not found"))
     return dict(r)
 
 
@@ -90,7 +91,7 @@ def re_create(ent: str, body: dict = Body(...)):
         raise HTTPException(404)
     data = _clean(fields, body)
     if not data:
-        raise HTTPException(400, "Keine Daten")
+        raise HTTPException(400, _t("No data"))
     with core.db() as con:
         cur = con.execute(f"INSERT INTO {table} ({', '.join(data)}) VALUES ({', '.join('?' * len(data))})", list(data.values()))
         rid = cur.lastrowid
@@ -173,10 +174,10 @@ def properties_full():
 
 @router.post("/api/properties/{pid}/defaults")
 def property_defaults(pid: int):
-    """Verteilschlüssel und Kostenarten wie in einer typischen Heiz- und Nebenkostenabrechnung anlegen."""
+    """Create distribution keys and cost types as in a typical heating and utility cost statement."""
     with core.db() as con:
         if con.execute("SELECT COUNT(*) FROM cost_categories WHERE property_id = ?", (pid,)).fetchone()[0]:
-            raise HTTPException(409, "Es gibt bereits Kostenarten für dieses Haus.")
+            raise HTTPException(409, _t("Cost types already exist for this building."))
         units = [r[0] for r in con.execute("SELECT id FROM units WHERE property_id = ?", (pid,))]
         keys = {}
         for name, typ in [("Raumheizung", "percent"), ("Warmwasser", "percent"), ("Fläche", "area"), ("Gleichmässig", "equal")]:
@@ -209,7 +210,7 @@ def add_allocation(body: dict = Body(...)):
     f = ["source_type", "source_id", "target_type", "target_id", "category_id", "unit_id", "percent", "amount", "quantity", "note"]
     data = _clean(f, body)
     if data.get("source_type") not in ("doc", "tx") or data.get("target_type") not in ("property", "project"):
-        raise HTTPException(400, "source_type doc|tx und target_type property|project angeben")
+        raise HTTPException(400, _t("Enter source_type doc|tx and target_type property|project"))
     if data.get("amount") is None and data.get("percent") is None:
         data["percent"] = 100
     with core.db() as con:
@@ -268,7 +269,7 @@ QTY_RE = re.compile(r"(?<![\d.,'’])(\d{1,3}(?:['’]\d{3})+(?:[.,]\d+)?|\d+(?:
 
 
 def _guess_quantity(text: str, unit_label: str) -> Optional[float]:
-    """Menge (z.B. '2'700 Liter') aus Titel/Zweck lesen, passend zur Einheit der Kostenart."""
+    """Read the quantity (e.g. '2'700 Liter') from title/purpose, matching the unit of the cost type."""
     if not unit_label:
         return None
     want = unit_label.lower().replace("³", "3")
@@ -292,7 +293,7 @@ def _guess_category(text: str, categories: list[dict]) -> Optional[int]:
 
 async def target_lines(target_type: str, tid: int, p0: Optional[date] = None, p1: Optional[date] = None,
                        categories: Optional[list[dict]] = None) -> list[dict]:
-    """Belege und Bankbuchungen, die einer Liegenschaft / einem Projekt zugeordnet sind (explizit oder über Tag)."""
+    """Receipts and bank transactions assigned to a property / project (explicitly or via tag)."""
     table = "properties" if target_type == "property" else "projects"
     target = _row(table, tid)
     in_period = lambda d: (not p0 or d >= p0.isoformat()) and (not p1 or d <= p1.isoformat())
@@ -360,7 +361,7 @@ async def target_lines(target_type: str, tid: int, p0: Optional[date] = None, p1
 def _load_property(pid: int) -> dict:
     p = next((x for x in properties_full() if x["id"] == pid), None)
     if not p:
-        raise HTTPException(404, "Haus nicht gefunden")
+        raise HTTPException(404, _t("Building not found"))
     return p
 
 
@@ -384,7 +385,7 @@ async def property_costs(pid: int, year: int, period: Optional[tuple[date, date]
         lines.append({"key": f"f{f['id']}", "source": "Fix", "source_type": "fixed", "source_id": f["id"], "alloc_id": None,
                       "date": max(p0, v0).isoformat(), "title": f["name"] or "Fixkosten",
                       "purpose": f"{f['amount']:.2f} pro {'Monat' if f['interval'] == 'monat' else 'Jahr'}"
-                                 + ("" if days == days_total else f" · {days} von {days_total} Tagen"),
+                                 + ("" if days == days_total else " · " + _t("{days} of {days_total} days", days=days, days_total=days_total)),
                       "full_amount": rx.r2(amount), "amount": rx.r2(amount), "category_id": f["category_id"], "category_guessed": False,
                       "unit_id": f["unit_id"], "quantity": None, "url": None, "implicit": False})
     with core.db() as con:
@@ -424,7 +425,7 @@ def _months_of(p0: date, p1: date) -> list[str]:
 
 
 def _month_in_stay(m: str, s: date, e: date) -> bool:
-    """Monat zählt (Miete/Akonto fällig), wenn das Mietverhältnis mindestens den halben Monat abdeckt."""
+    """A month counts (rent/advance payment due) if the tenancy covers at least half of the month."""
     y, mo = map(int, m.split("-"))
     m0 = date(y, mo, 1)
     m1 = date(y + (mo == 12), 1 if mo == 12 else mo + 1, 1) - timedelta(days=1)
@@ -432,7 +433,7 @@ def _month_in_stay(m: str, s: date, e: date) -> bool:
 
 
 def _akonto(tenancy: Optional[dict], p0: date, p1: date) -> tuple[float, float]:
-    """(erhalten laut Mietzinseingängen, erwartet laut Mietvertrag)"""
+    """(received according to rent receipts, expected according to the lease)"""
     if not tenancy:
         return 0.0, 0.0
     s, e = _stay(tenancy, p0, p1)
@@ -446,11 +447,11 @@ def _akonto(tenancy: Optional[dict], p0: date, p1: date) -> tuple[float, float]:
 
 
 def oil_ledger(pid: int) -> list[dict]:
-    """Heizöl-Lager chronologisch mit gleitendem Durchschnittspreis.
-    Ablesung = Tankstand, Lieferung = gelieferte Liter + Betrag. Bewertet wird mit dem Durchschnittspreis des Tankinhalts:
-    (Restwert + Lieferungen) / (Restmenge + gelieferte Liter). Ein bei der Ablesung erfasster Preis zählt nur, solange
-    noch kein Durchschnitt berechnet werden kann (Anfangsbestand).
-    Am gleichen Tag zählt die Ablesung vor der Lieferung."""
+    """Heating oil stock in chronological order with a moving average price.
+    Reading = tank level, delivery = litres delivered + amount. Valuation uses the average price of the tank content:
+    (residual value + deliveries) / (remaining quantity + litres delivered). A price recorded at a reading only counts as long as
+    no average can be calculated yet (opening stock).
+    On the same day the reading counts before the delivery."""
     with core.db() as con:
         rows = [dict(r) for r in con.execute("SELECT * FROM heating_stock WHERE property_id = ?", (pid,))]
     rows.sort(key=lambda r: (r["date"], 0 if (r.get("kind") or "ablesung") == "ablesung" else 1, r["id"]))
@@ -464,7 +465,7 @@ def oil_ledger(pid: int) -> list[dict]:
             if level is None:
                 level, value = 0.0, 0.0
             if value is None and r["unit_price"] and level is not None:
-                value = level * r["unit_price"] / 100      # Restbestand ohne Preis: zum Lieferpreis bewerten
+                value = level * r["unit_price"] / 100      # remaining stock without price: value at the delivery price
             level += liters
             value = value + amt if value is not None and amt is not None else None
             r["avg_price"] = rx.r2(value / level * 100) if value is not None and level else None
@@ -489,14 +490,14 @@ def get_oil_ledger(pid: int):
 
 
 def _reading(pid: int, d: date, tol: int = 20) -> Optional[dict]:
-    """Tankstand-Ablesung am nächsten zum Stichtag (höchstens `tol` Tage daneben), Preis ggf. als Durchschnitt."""
+    """Tank level reading closest to the cut-off date (at most `tol` days off), price as average if applicable."""
     rows = [r for r in oil_ledger(pid) if r["kind"] == "ablesung"]
     best = min(rows, key=lambda r: abs((date.fromisoformat(r["date"]) - d).days), default=None)
     return best if best and abs((date.fromisoformat(best["date"]) - d).days) <= tol else None
 
 
 def _oil(p: dict, p0: date, p1: date, lines: list[dict]) -> tuple[list[dict], Optional[dict]]:
-    """Heizöl nach Verbrauch statt nach Einkauf: Anfangsbestand + Einkäufe − Endbestand."""
+    """Heating oil by consumption instead of by purchase: opening stock + purchases − closing stock."""
     cid = p.get("oil_category_id")
     if not cid:
         return lines, None
@@ -507,7 +508,7 @@ def _oil(p: dict, p0: date, p1: date, lines: list[dict]) -> tuple[list[dict], Op
             "need_start": p0.isoformat(), "need_end": p1.isoformat(),
             "readings": [r["date"] for r in oil_ledger(p["id"]) if r["kind"] == "ablesung"]}
     if manual and start and end:
-        # erfasste Lieferungen zwischen den Ablesungen ersetzen die Heizöl-Belege (sonst doppelt)
+        # recorded deliveries between the readings replace the heating oil receipts (otherwise counted twice)
         inside = [r for r in manual if start["date"] <= r["date"] < end["date"]]
         info["source"] = "Lieferungen"
         info["purchases"] = {"liters": rx.r2(sum(r["liters"] or 0 for r in inside)), "amount": rx.r2(sum(r["amount"] or 0 for r in inside)),
@@ -532,25 +533,25 @@ def _oil(p: dict, p0: date, p1: date, lines: list[dict]) -> tuple[list[dict], Op
                 price=rx.r2(amount / liters * 100) if liters else None)
     rest = [l for l in lines if l not in buys]
     rest.append({"key": "oil", "source": "Verbrauch", "source_type": "oil", "source_id": None, "alloc_id": None, "date": p1.isoformat(),
-                 "title": "Heizöl-Verbrauch", "purpose": None, "full_amount": amount, "amount": amount, "category_id": cid,
+                 "title": _t("Heating oil consumption"), "purpose": None, "full_amount": amount, "amount": amount, "category_id": cid,
                  "category_guessed": False, "unit_id": None, "quantity": liters, "url": None, "implicit": False})
     return rest, info
 
 
 def _meters_nk(p: dict, p0: date, p1: date) -> list[dict]:
-    """Allgemein-Zähler des Hauses (ohne Wohnung): Verbrauch der Periode × Tarif als Hinweis „erwartet“ – ersetzt nichts."""
-    from . import meters_api as mt   # spät importieren (meters_api -> contracts_api -> re_api)
+    """General meters of the building (without flat): consumption of the period × tariff as an "expected" hint – replaces nothing."""
+    from . import meters_api as mt   # import late (meters_api -> contracts_api -> re_api)
     with core.db() as con:
         meters = [dict(r) for r in con.execute("SELECT * FROM meters WHERE property_id = ? AND unit_id IS NULL AND active = 1", (p["id"],))]
     out = []
     for m in meters:
         try:
             c = mt.consumption(m, p0, p1)
-        except Exception as e:   # ein Zähler darf die Abrechnung nie verhindern
-            log.warning("Zähler %s: %s", m.get("name"), e)
+        except Exception as e:   # a meter must never prevent the statement
+            log.warning("Meter %s: %s", m.get("name"), e)
             continue
         cid = m.get("nk_category_id")
-        if not cid and m["kind"] == "strom":   # ohne Angabe: Kategorie mit „Strom“ im Namen
+        if not cid and m["kind"] == "strom":   # if not specified: category with "Strom" in its name
             cid = next((x["id"] for x in p["categories"] if "strom" in x["name"].lower()), None)
         cat = next((x for x in p["categories"] if x["id"] == cid), None)
         c.update(category_id=cid, category=cat["name"] if cat else None, grp=cat["grp"] if cat else None)
@@ -573,7 +574,7 @@ async def _statement(pid: int, year: int, tenancy_id: Optional[int], unit_id: Op
     tenancy = next((t for t in p["tenancies"] if t["id"] == tenancy_id), None) if tenancy_id else None
     uid = tenancy["unit_id"] if tenancy else unit_id
     if not uid or not any(u["id"] == uid for u in p["units"]):
-        raise HTTPException(400, "Wohnung oder Mietverhältnis wählen")
+        raise HTTPException(400, _t("Choose a flat or tenancy"))
     units = [rx.Unit(u["id"], u["name"], u["area"] or 0, bool(u["owner_occupied"])) for u in p["units"]]
     keys = [rx.Key(k["id"], k["name"], k["type"], {int(a): b for a, b in k["shares"].items()}) for k in p["keys"]]
     cats = [rx.Category(c["id"], c["grp"], c["name"], c["key_id"], bool(c["heating"]), c["unit_label"] or "", c["sort"] or 0)
@@ -585,7 +586,7 @@ async def _statement(pid: int, year: int, tenancy_id: Optional[int], unit_id: Op
     st = rx.compute_statement(units=units, keys=keys, categories=cats, costs=costs, unit_id=uid, period=(p0, p1),
                               stay=_stay(tenancy, p0, p1), room_pct=p["room_pct"] or 70, room_key_id=p["room_key_id"],
                               water_key_id=p["water_key_id"], akonto=used)
-    for m in meters:     # erwartete Kosten laut Zähler in Klammern hinter die Kategorie
+    for m in meters:     # expected costs according to the meter in brackets after the category
         if m.get("amount") is None or not m.get("category"):
             continue
         tag = f" (erwartet {rx.chf(m['amount'])})"
@@ -646,8 +647,8 @@ async def statement_generate(pid: int, body: dict = Body(...)):
         pdf_path = FILES_DIR / f"{base}.pdf"
         if not pdf_path.exists():
             pdf_path = None
-    except Exception as e:  # LibreOffice fehlt oder Fehler
-        warnings.append(f"PDF konnte nicht erzeugt werden ({type(e).__name__}).")
+    except Exception as e:  # LibreOffice missing or error
+        warnings.append(_t("PDF could not be generated ({err}).", err=type(e).__name__))
     task = None
     if body.get("upload", True) and pdf_path:
         try:
@@ -658,11 +659,11 @@ async def statement_generate(pid: int, body: dict = Body(...)):
             r = await core.client().post("/api/documents/post_document/", data=data,
                                          files={"document": (pdf_path.name, pdf_path.read_bytes(), "application/pdf")})
             if r.status_code >= 400:
-                warnings.append(f"Upload zu Paperless fehlgeschlagen ({r.status_code}).")
+                warnings.append(_t("Upload to Paperless failed ({err}).", err=r.status_code))
             else:
                 task = r.text.strip('"')
         except Exception as e:
-            warnings.append(f"Upload zu Paperless fehlgeschlagen ({e}).")
+            warnings.append(_t("Upload to Paperless failed ({err}).", err=e))
     with core.db() as con:
         con.execute("INSERT INTO nk_statements(property_id, unit_id, tenancy_id, period_start, period_end, total, akonto, saldo, "
                     "created_at, docx, pdf, paperless_task, interim) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -675,7 +676,7 @@ async def statement_generate(pid: int, body: dict = Body(...)):
 
 @router.get("/api/properties/{pid}/summary")
 async def property_summary(pid: int, year: int):
-    """Umlegbare Kosten der Periode verteilt auf Mietverhältnisse, Eigennutzung und Leerstand."""
+    """Allocatable costs of the period distributed across tenancies, owner occupation and vacancy."""
     p = _load_property(pid)
     p0, p1 = _period(p, year)
     rows = []
@@ -690,12 +691,12 @@ async def property_summary(pid: int, year: int):
         if u["owner_occupied"] and not tens:
             _, st = await _statement(pid, year, None, u["id"], None)
             covered = st["days"]
-            rows.append({"unit_id": u["id"], "unit": u["name"], "type": "Eigennutzung", "name": p["owner_name"] or "Eigentümer",
+            rows.append({"unit_id": u["id"], "unit": u["name"], "type": "Eigennutzung", "name": p["owner_name"] or _t("Owner"),
                          "tenancy_id": None, "days": st["days"], "total": st["total"], "akonto": 0, "saldo": st["total"]})
         days_total = (p1 - p0).days + 1
         if covered < days_total:
             _, st = await _statement(pid, year, None, u["id"], None)
-            # nur verteilte Kosten; direkt belastete Positionen gehören dem jeweiligen Mieter
+            # distributed costs only; directly charged items belong to the respective tenant
             direct = sum(r["unit_amount"] for g in st["groups"] for r in g["rows"] if r.get("direct"))
             share = rx.r2((st["subtotal"] - direct) * (days_total - covered) / days_total)
             rows.append({"unit_id": u["id"], "unit": u["name"], "type": "Leerstand", "name": "ohne Mieter", "tenancy_id": None,
@@ -718,7 +719,7 @@ def nk_history(property_id: int):
 
 
 def _latest_ids(rows: list[dict]) -> set:
-    """Pro Mietverhältnis (bzw. Wohnung beim Eigenanteil) nur die zuletzt erzeugte Abrechnung."""
+    """Only the most recently generated statement per tenancy (or per flat for the own share)."""
     best: dict = {}
     for r in rows:
         key = ("t", r["tenancy_id"]) if r["tenancy_id"] else ("u", r["unit_id"])
@@ -729,15 +730,15 @@ def _latest_ids(rows: list[dict]) -> set:
 
 @router.delete("/api/nk-statements/{sid}")
 async def nk_delete(sid: int, paperless: bool = False):
-    """Abrechnung löschen: Eintrag, Word-/PDF-Datei (falls von keiner anderen Abrechnung genutzt) und optional das Paperless-Dokument."""
+    """Delete a statement: entry, Word/PDF file (if not used by another statement) and optionally the Paperless document."""
     with core.db() as con:
         r = con.execute("SELECT * FROM nk_statements WHERE id = ?", (sid,)).fetchone()
         if not r:
-            raise HTTPException(404, "Abrechnung nicht gefunden")
+            raise HTTPException(404, _t("Statement not found"))
         r = dict(r)
         same = [dict(x) for x in con.execute("SELECT id, tenancy_id, unit_id FROM nk_statements WHERE property_id = ?", (r["property_id"],))]
         if sid not in _latest_ids(same):
-            raise HTTPException(409, "Nur die zuletzt erzeugte Abrechnung dieses Mietverhältnisses kann gelöscht werden.")
+            raise HTTPException(409, _t("Only the most recently generated statement of this tenancy can be deleted."))
         con.execute("DELETE FROM nk_statements WHERE id = ?", (sid,))
         others = {x for row in con.execute("SELECT docx, pdf FROM nk_statements") for x in row if x}
     for name in (r["docx"], r["pdf"]):
@@ -756,11 +757,11 @@ async def nk_delete(sid: int, paperless: bool = False):
         if doc_id:
             try:
                 await core.pl_request("DELETE", f"/api/documents/{int(doc_id)}/")
-                result["paperless"] = "gelöscht"
+                result["paperless"] = _t("deleted")
             except HTTPException as e:
-                result["paperless"] = f"nicht gelöscht ({e.detail})"
+                result["paperless"] = _t("not deleted ({err})", err=e.detail)
         else:
-            result["paperless"] = "Dokument in Paperless nicht gefunden – bitte dort von Hand löschen"
+            result["paperless"] = _t("Document not found in Paperless – please delete it there manually")
     return result
 
 
@@ -772,11 +773,11 @@ def get_file(name: str):
     return FileResponse(path, filename=path.name)
 
 
-# ---------------------------------------------------------------- Mietzinseingänge
+# ---------------------------------------------------------------- Rent received
 def _kw_match(match_text: str, hay: str) -> bool:
     hay = hay.lower()
     for kw in (match_text or "").split(","):
-        # zu kurze Begriffe (z.B. „CH“ aus einer kopierten Adresse) würden fast jede Buchung treffen
+        # terms that are too short (e.g. "CH" from a copied address) would match almost every transaction
         terms = [t.strip().lower() for t in kw.split("+") if len(t.strip()) >= 3]
         if terms and all(t in hay for t in terms):
             return True
@@ -784,7 +785,7 @@ def _kw_match(match_text: str, hay: str) -> bool:
 
 
 def _rent_month(d: str) -> str:
-    """Mieten werden im Voraus bezahlt: Zahlung ab dem 20. gilt für den Folgemonat."""
+    """Rents are paid in advance: a payment from the 20th counts for the following month."""
     dt = date.fromisoformat(d)
     if dt.day >= 20:
         dt = date(dt.year + (dt.month == 12), 1 if dt.month == 12 else dt.month + 1, 1)
@@ -792,7 +793,7 @@ def _rent_month(d: str) -> str:
 
 
 def _rent_k(amount: float, ten) -> int:
-    """Wie viele Monatsmieten (Miete + Akonto) der Betrag ist: 1–3, 0 = passt nicht. Toleranz 2 %, mind. CHF 2."""
+    """How many monthly rents (rent + advance payment) the amount is: 1–3, 0 = no match. Tolerance 2 %, at least CHF 2."""
     exp = (ten["rent"] or 0) + (ten["akonto"] or 0)
     if exp <= 0:
         return 0
@@ -810,7 +811,7 @@ def _add_month(m: str, n: int) -> str:
 
 
 def _spread(rows: list[dict]) -> list[dict]:
-    """Zahlung über mehrere Monatsmieten auf die Monate verteilen (ab dem zugeordneten Monat)."""
+    """Spread a payment covering several monthly rents across the months (from the assigned month)."""
     out = []
     for r in rows:
         n = max(1, int(r.get("n_months") or 1))
@@ -833,7 +834,7 @@ def _in_tenancy(d: str, ten: dict) -> bool:
 
 
 def _rent_auto_ok(t, ten: dict) -> bool:
-    """Automatisch nur, wenn Stichwort UND Betrag passen und die Zahlung in die Mietdauer fällt."""
+    """Automatic only if keyword AND amount match and the payment falls within the tenancy."""
     hay = f"{t['merchant'] or ''} {t['text']}"
     return _in_tenancy(t["date"], ten) and _kw_match(ten["match_text"], hay) and _rent_fits(t["amount"], ten)
 
@@ -847,13 +848,13 @@ def _rent_parts(amount: float, ten) -> tuple[float, float]:
 
 def auto_assign_rent(con) -> int:
     tenancies = {r["id"]: dict(r) for r in con.execute("SELECT * FROM tenancies WHERE match_text IS NOT NULL AND match_text != ''")}
-    # früher automatisch zugeordnete Buchungen, die die Regeln nicht (mehr) erfüllen, wieder lösen
+    # unassign transactions previously assigned automatically that no longer meet the rules
     for r in con.execute("SELECT rp.tx_id, rp.tenancy_id, rp.n_months, t.* FROM rent_payments rp JOIN transactions t ON t.id = rp.tx_id "
                          "WHERE rp.auto = 1 AND rp.tenancy_id != 0").fetchall():
         ten = tenancies.get(r["tenancy_id"])
         if not ten or not _rent_auto_ok(r, ten):
             con.execute("DELETE FROM rent_payments WHERE tx_id = ?", (r["tx_id"],))
-        elif r["n_months"] is None:     # ältere Zuordnungen: Anzahl Monatsmieten nachtragen
+        elif r["n_months"] is None:     # older assignments: add the number of monthly rents
             con.execute("UPDATE rent_payments SET n_months = ? WHERE tx_id = ?", (_rent_k(r["amount"], ten) or 1, r["tx_id"]))
     if not tenancies:
         return 0
@@ -912,21 +913,21 @@ def rent_overview(pid: int, year: int):
                     "due_total": rx.r2(sum(r["due"] for r in rows)), "paid_total": rx.r2(sum(r["paid"] for r in rows)),
                     "arrears": rx.r2(arrears)})
     open_credits = [c for c in credits if c["id"] not in taken][:60]
-    for c in open_credits:    # Vorschlag: Betrag passt zu einem Mietverhältnis (Stichwort fehlt oder passt nicht)
+    for c in open_credits:    # suggestion: amount matches a tenancy (keyword missing or does not match)
         hay = f"{c['merchant'] or ''} {c['text']}"
         fit = [t for t in p["tenancies"] if _in_tenancy(c["date"], t) and _rent_fits(c["amount"], t)]
         if fit:
             kw = [t for t in fit if t.get("match_text") and _kw_match(t["match_text"], hay)]
             c["suggest"] = (kw or fit)[0]["id"]
             if not kw:
-                c["hint"] = f"Betrag passt, Stichwort „{fit[0].get('match_text') or '–'}“ nicht im Buchungstext"
-        else:   # Stichwort passt, aber Betrag oder Datum nicht: Grund anzeigen
+                c["hint"] = _t("Amount matches, keyword “{kw}” not in the booking text", kw=fit[0].get('match_text') or '–')
+        else:   # keyword matches, but amount or date does not: show the reason
             kwt = next((t for t in p["tenancies"] if t.get("match_text") and _kw_match(t["match_text"], hay)), None)
             if kwt:
                 exp = (kwt["rent"] or 0) + (kwt["akonto"] or 0)
                 c["suggest"] = kwt["id"]
                 c["hint"] = (f"Stichwort passt, aber Zahlung ausserhalb der Mietdauer (ab {kwt['start']})" if not _in_tenancy(c["date"], kwt)
-                             else f"Stichwort passt, aber Betrag ≠ Monatsmiete {exp:.2f} (Miete + Akonto in der Einrichtung prüfen)")
+                             else _t("Keyword matches, but amount ≠ monthly rent {exp} (check rent + advance payment in the setup)", exp=f"{exp:.2f}"))
     return {"months": months, "tenancies": out, "unassigned_credits": open_credits}
 
 
@@ -947,7 +948,7 @@ def assign_rent(body: dict = Body(...)):
 
 @router.delete("/api/rent-payments/{tx_id}", status_code=204)
 def unassign_rent(tx_id: int):
-    """Zuordnung lösen; die Buchung wird nicht mehr automatisch als Miete erkannt."""
+    """Remove the assignment; the transaction is no longer recognised as rent automatically."""
     with core.db() as con:
         con.execute("INSERT OR REPLACE INTO rent_payments(tx_id, tenancy_id, month, rent_part, akonto_part, auto) "
                     "VALUES (?, 0, '', 0, 0, 0)", (tx_id,))
@@ -974,7 +975,7 @@ async def project_items(pid: int):
     return {"project": _row("projects", pid), "lines": lines, "total": rx.r2(sum(l["amount"] for l in lines))}
 
 
-# ---------------------------------------------------------------- Suche (Belege zum Zuordnen)
+# ---------------------------------------------------------------- Search (receipts to assign)
 @router.get("/api/doc-search")
 async def doc_search(q: str, limit: int = 25):
     meta = await core.get_meta()

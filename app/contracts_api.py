@@ -1,8 +1,8 @@
-"""API: Verträge (Versicherungen, Abos, Telefon, Energie …) und Kredite (Hypothek, Leasing, Darlehen).
+"""API: contracts (insurance, subscriptions, phone, energy …) and loans (mortgage, leasing, personal loan).
 
-Ein Vertrag hat Versionen (Preis-/Konditionsänderungen ab Datum, optional mit Paperless-Beleg),
-Zahlungen (Bankbuchungen, automatisch über Stichworte oder manuell zugeordnet) und Dokumente
-(Paperless, über Korrespondent und/oder Tag).
+A contract has versions (price/terms changes from a date, optionally with a Paperless receipt),
+payments (bank transactions, assigned automatically via keywords or manually) and documents
+(Paperless, via correspondent and/or tag).
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
 from . import main as core
+from .i18n import _t
 from . import re_api
 
 router = APIRouter()
@@ -91,7 +92,7 @@ def _anchor(c: dict, versions: list[dict]) -> Optional[date]:
 
 
 def loan_balance(c: dict, versions: list[dict], at: date) -> Optional[float]:
-    """Restschuld nach Plan: Anfangsbetrag minus Amortisationen der fälligen Perioden bis zum Stichtag."""
+    """Outstanding balance per plan: initial amount minus repayments of the due periods up to the cut-off date."""
     if c["principal"] is None:
         return None
     bal = float(c["principal"])
@@ -105,7 +106,7 @@ def loan_balance(c: dict, versions: list[dict], at: date) -> Optional[float]:
         vf = max(_d(v["valid_from"]) or anchor, anchor)
         vt = _d(versions[i + 1]["valid_from"]) if i + 1 < len(versions) else None
         stop = min(at, vt - timedelta(days=1)) if vt else at
-        # Fälligkeiten: anchor + k*m Monate (erste Zahlung eine Periode nach Beginn)
+        # due dates: anchor + k*m months (first payment one period after the start)
         k = 1
         while True:
             due = _add_months(anchor, k * m)
@@ -118,7 +119,7 @@ def loan_balance(c: dict, versions: list[dict], at: date) -> Optional[float]:
 
 
 def _period_cost(c: dict, v: Optional[dict], balance: Optional[float]) -> Optional[float]:
-    """Betrag pro Intervall. Kredit ohne fixen Betrag: Zins auf Restschuld + Amortisation."""
+    """Amount per interval. Loan without a fixed amount: interest on the outstanding balance + repayment."""
     if not v:
         return None
     if v["amount"] is not None:
@@ -164,7 +165,7 @@ def expected_in_year(c: dict, versions: list[dict], year: int, until: Optional[d
 
 
 def term_info(c: dict, today: date) -> dict:
-    """Laufzeitende und letzter Kündigungstermin."""
+    """End of term and last cancellation deadline."""
     start, end = _d(c["start"]), _d(c["end"])
     term_end = None
     if end and end >= today:
@@ -182,7 +183,7 @@ def term_info(c: dict, today: date) -> dict:
     notice_by = None
     if term_end and c["notice_months"] is not None and (not end or end >= today or c["renew_months"]):
         notice_by = _add_months(term_end + timedelta(days=1), -int(c["notice_months"])) - timedelta(days=1)
-        # Termin schon vorbei, Vertrag verlängert sich: nächsten Termin nehmen
+        # deadline already passed, contract renews: take the next deadline
         if notice_by < today and c["renew_months"]:
             term_end = _add_months(term_end + timedelta(days=1), c["renew_months"]) - timedelta(days=1)
             notice_by = _add_months(term_end + timedelta(days=1), -int(c["notice_months"])) - timedelta(days=1)
@@ -272,7 +273,7 @@ def contract_labels(con) -> dict[int, dict]:
 def _contract(con, cid: int) -> dict:
     r = con.execute("SELECT * FROM contracts WHERE id = ?", (cid,)).fetchone()
     if not r:
-        raise HTTPException(404, "Vertrag nicht gefunden")
+        raise HTTPException(404, _t("Contract not found"))
     return dict(r)
 
 
@@ -293,7 +294,7 @@ def contracts_overview():
     s = lambda xs, k: round(sum(x.get(k) or 0 for x in xs), 2)
     by_cat: dict[str, float] = {}
     for c in con_:
-        by_cat[c["category"] or "Sonstiges"] = round(by_cat.get(c["category"] or "Sonstiges", 0) + (c["monthly"] or 0), 2)
+        by_cat[c["category"] or "Other"] = round(by_cat.get(c["category"] or "Other", 0) + (c["monthly"] or 0), 2)
     return {
         "items": items,
         "totals": {"contracts_monthly": s(con_, "monthly"), "contracts_yearly": s(con_, "yearly"),
@@ -354,7 +355,7 @@ def contract_delete(cid: int):
 
 @router.get("/api/contracts/{cid}/docs")
 async def contract_docs(cid: int):
-    """Paperless-Dokumente zum Vertrag (Korrespondent und/oder Tag) plus die in Versionen verknüpften."""
+    """Paperless documents of the contract (correspondent and/or tag) plus those linked in versions."""
     with core.db() as con:
         c = _contract(con, cid)
         linked = {r[0] for r in con.execute("SELECT doc_id FROM contract_versions WHERE contract_id = ? AND doc_id IS NOT NULL", (cid,))}
@@ -385,7 +386,7 @@ async def contract_docs(cid: int):
 
 @router.post("/api/contracts/{cid}/version-from-doc")
 async def version_from_doc(cid: int, body: dict = Body(...)):
-    """Neue Version aus einem Paperless-Beleg: Datum und Betrag übernehmen, Intervall der aktuellen Version."""
+    """New version from a Paperless receipt: take over date and amount, interval of the current version."""
     doc_id = int(body["doc_id"])
     meta = await core.get_meta()
     fid = meta["amount_field"]["id"] if meta["amount_field"] else None
@@ -403,7 +404,7 @@ async def version_from_doc(cid: int, body: dict = Body(...)):
 
 @router.get("/api/contracts/{cid}/tx-search")
 def tx_search(cid: int, q: str = ""):
-    """Belastungen zum manuellen Zuordnen (ohne bereits einem Vertrag zugeordnete)."""
+    """Debits for manual assignment (excluding those already assigned to a contract)."""
     like = f"%{q}%"
     with core.db() as con:
         rows = [dict(r) for r in con.execute(
@@ -419,7 +420,7 @@ def assign_payment(body: dict = Body(...)):
     tx_id, cid = int(body["tx_id"]), int(body["contract_id"])
     with core.db() as con:
         if not con.execute("SELECT 1 FROM transactions WHERE id = ?", (tx_id,)).fetchone():
-            raise HTTPException(404, "Buchung nicht gefunden")
+            raise HTTPException(404, _t("Transaction not found"))
         _contract(con, cid)
         con.execute("INSERT OR REPLACE INTO contract_payments(tx_id, contract_id, auto) VALUES (?, ?, 0)", (tx_id, cid))
     return {"ok": True}
@@ -427,7 +428,7 @@ def assign_payment(body: dict = Body(...)):
 
 @router.delete("/api/contract-payments/{tx_id}", status_code=204)
 def unassign_payment(tx_id: int):
-    """Zuordnung lösen; die Buchung wird danach nicht mehr automatisch zugeordnet."""
+    """Remove the assignment; the transaction is no longer assigned automatically afterwards."""
     with core.db() as con:
         con.execute("INSERT OR REPLACE INTO contract_payments(tx_id, contract_id, auto) VALUES (?, 0, 0)", (tx_id,))
     return Response(status_code=204)
@@ -461,7 +462,7 @@ def _cadence(days: list[int]) -> Optional[str]:
 
 @router.get("/api/abo-suggestions")
 def abo_suggestions():
-    """Belastungen, die regelmässig mit (fast) gleichem Betrag wiederkommen und noch keinem Vertrag/Abo zugeordnet sind."""
+    """Debits that recur regularly with (almost) the same amount and are not yet assigned to a contract/subscription."""
     cfg = core.get_settings()
     ignored = set(cfg.get("abo_ignore") or [])
     since = (date.today() - timedelta(days=430)).isoformat()
@@ -484,7 +485,7 @@ def abo_suggestions():
     out = []
     today = date.today()
     for k, ts in groups.items():
-        # nach Betrag bündeln (±10 %, mind. 1 CHF) – ein Händler kann mehrere Abos haben
+        # group by amount (±10 %, at least 1 CHF) – a merchant can have several subscriptions
         clusters: list[list] = []
         for t in ts:
             a = -t["amount"]
@@ -506,7 +507,7 @@ def abo_suggestions():
             months = INTERVAL_MONTHS.get(cad or "monat", 1)
             last = dates[-1]
             nxt = _add_months(last, months)
-            if (today - last).days > months * 31 + 45:     # seit längerem nicht mehr belastet -> vermutlich gekündigt
+            if (today - last).days > months * 31 + 45:     # not charged for a while -> probably cancelled
                 continue
             amt = round(-cl[-1]["amount"], 2)
             out.append({"key": k, "name": (cl[-1]["merchant"] or k).title() if not cl[-1]["merchant"] else cl[-1]["merchant"],
@@ -518,10 +519,10 @@ def abo_suggestions():
 
 @router.post("/api/abo-suggestions/accept")
 def accept_abo(body: dict = Body(...)):
-    """Vorschlag als Abo anlegen: Vertrag (kind=abo) mit Version, Stichwort und den bisherigen Zahlungen."""
+    """Create a suggestion as a subscription: contract (kind=abo) with version, keyword and the payments so far."""
     name, amount, interval = body["name"], float(body["amount"]), body.get("interval") or "monat"
     first = body.get("first") or date.today().isoformat()
-    # Rhythmus an der letzten Zahlung ausrichten (Abbuchungsdatum kann sich verschieben), Beginn = davor liegende Fälligkeit
+    # align the rhythm to the last payment (the debit date can shift), start = preceding due date
     m = INTERVAL_MONTHS.get(interval, 1) or 1
     if body.get("last"):
         anchor = date.fromisoformat(body["last"])

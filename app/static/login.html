@@ -1,11 +1,13 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Anmelden · Budget</title>
+  <title>Sign in · Budget</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
+  <script src="locales/de.js"></script>
+  <script src="i18n.js"></script>
   <style>
     .login { max-width: 360px; margin: 12vh auto 0; padding: 0 16px; }
     .login .card { padding: 24px; }
@@ -18,12 +20,13 @@
   <div class="login">
     <div class="card">
       <h1>Budget <span class="muted">· Paperless</span></h1>
-      <p class="muted small">Bitte anmelden.</p>
+      <p class="muted small">Please sign in.</p>
       <form id="f" class="form">
-        <label>Benutzername<input name="username" autocomplete="username" required autofocus></label>
-        <label>Passwort<input name="password" type="password" autocomplete="current-password" required></label>
+        <label><span>Username</span><input name="username" autocomplete="username" required autofocus></label>
+        <label><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
         <div class="err" id="err"></div>
-        <button class="primary">Anmelden</button>
+        <button class="primary">Sign in</button>
+        <select class="lang-switch" aria-label="Language"></select>
       </form>
     </div>
   </div>
@@ -33,12 +36,12 @@
       const f = e.target, err = document.getElementById("err");
       err.textContent = ""; f.querySelector("button").disabled = true;
       try {
-        const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+        const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json", "X-Lang": LANG },
           body: JSON.stringify({ username: f.username.value, password: f.password.value }) });
         if (r.ok) { location.href = "/"; return; }
         const j = await r.json().catch(() => ({}));
-        err.textContent = j.detail || "Anmeldung fehlgeschlagen";
-      } catch { err.textContent = "Server nicht erreichbar"; }
+        err.textContent = j.detail || __("Sign-in failed");
+      } catch { err.textContent = __("Server unreachable"); }
       f.querySelector("button").disabled = false;
     };
   </script>

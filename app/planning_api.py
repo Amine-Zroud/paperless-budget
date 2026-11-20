@@ -1,11 +1,11 @@
-"""API: Vormerkungen (Bestellungen, die noch nicht verrechnet sind) und "Rest vom Lohn".
+"""API: planned items (orders that are not settled yet) and "left of salary".
 
-Bestellungen kommen auf zwei Wegen:
-  A) Paperless: Bestellbestätigungen (z.B. per Mail-Regel importiert) mit dem Tag ORDER_TAG_NAME ("Bestellung").
-     Betrag aus dem Feld "Total" oder aus dem Text ("Total CHF 129.00").
-  C) von Hand in der App.
-Eine offene Vormerkung wird automatisch erledigt, sobald eine passende Rechnung (Paperless) oder
-Belastung (Kontoauszug) vom gleichen Händler mit etwa gleichem Betrag auftaucht.
+Orders come in two ways:
+  A) Paperless: order confirmations (e.g. imported via a mail rule) with the tag ORDER_TAG_NAME ("Bestellung").
+     Amount from the field "Total" or from the text ("Total CHF 129.00").
+  C) by hand in the app.
+An open planned item is completed automatically as soon as a matching invoice (Paperless) or
+debit (bank statement) from the same merchant with about the same amount appears.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from fastapi.responses import Response
 from . import bank
 from . import contracts_api as ct
 from . import main as core
+from .i18n import _t
 
 router = APIRouter()
 def _order_name() -> str:
@@ -46,7 +47,7 @@ with core.db() as _con:
         """
     )
 
-# Rechnungs-/Bestell-Total: Stichwort, dann (optional) Währung, dann Betrag mit 2 Nachkommastellen
+# invoice/order total: keyword, then (optional) currency, then amount with 2 decimal places
 _TOTAL = re.compile(
     r"(?:gesamtbetrag|gesamtsumme|gesamttotal|rechnungsbetrag|bestellwert|bestellsumme|endbetrag|zu bezahlen|zahlbetrag|"
     r"grand total|order total|total|summe|betrag)\b[^\n\d]{0,40}?(?:chf|fr\.|sfr\.?|eur|€)?\s*([\d'’]{1,7}[.,]\d{2})(?!\d)",
@@ -58,8 +59,8 @@ _STRONG = re.compile(r"zu bezahlen|zahlbetrag|gesamtbetrag|endbetrag|rechnungsbe
 
 
 def amount_from_text(text: str) -> Optional[float]:
-    """Bestell-Total aus dem Text: letzter "starker" Treffer (Zu bezahlen, Gesamtbetrag, Total inkl. MwSt …),
-    sonst der grösste Betrag hinter Total/Summe. Zwischensummen, MWST, Versand, Rabatt werden ignoriert."""
+    """Order total from the text: last "strong" hit (amount due, grand total, total incl. VAT …),
+    otherwise the largest amount after Total/Sum. Subtotals, VAT, shipping, discounts are ignored."""
     strong, weak = [], []
     for line in (text or "").splitlines():
         for m in _TOTAL.finditer(line):
@@ -80,7 +81,7 @@ async def order_tag_id() -> Optional[int]:
 
 
 async def import_orders() -> dict:
-    """Neue Bestellbestätigungen mit dem Tag aus Paperless übernehmen."""
+    """Import new order confirmations with the tag from Paperless."""
     tid = await order_tag_id()
     if not tid:
         return {"tag": None, "added": 0}
@@ -130,7 +131,7 @@ def _done(con, pid: int, ref: str, title: str):
 
 
 async def auto_clear() -> int:
-    """Offene Vormerkungen mit Rechnung oder Belastung abgleichen."""
+    """Match open planned items with an invoice or debit."""
     with core.db() as con:
         open_ = [dict(r) for r in con.execute("SELECT * FROM planned WHERE status = 'open' AND amount IS NOT NULL")]
     if not open_:
@@ -143,7 +144,7 @@ async def auto_clear() -> int:
         txs = [dict(r) for r in con.execute(
             "SELECT id, date, amount, merchant, text FROM transactions WHERE amount < 0 AND status != 'ignored' AND date >= ?",
             (first.isoformat(),))]
-    # Rechnungen aus Paperless (ohne Bestell-Tag)
+    # invoices from Paperless (without order tag)
     invoices = []
     try:
         tid = await order_tag_id()
@@ -169,7 +170,7 @@ async def auto_clear() -> int:
                 same = (p["correspondent_id"] and inv["correspondent"] == p["correspondent_id"]) or \
                        (toks & bank._tokens(f"{corr.get(inv['correspondent'], '')} {inv['title']}"))
                 if same:
-                    hit = (ref, f"Rechnung: {inv['title']}")
+                    hit = (ref, _t("Invoice: {title}", title=inv['title']))
                     break
             if not hit:
                 for t in txs:
@@ -187,9 +188,9 @@ async def auto_clear() -> int:
     return n
 
 
-# ---------------------------------------------------------------- Rest vom Lohn
+# ---------------------------------------------------------------- Left of salary
 def recurring_in_month(start: date, end: date, today: date) -> list[dict]:
-    """Fällige Vertrags-/Kreditzahlungen im Monat, mit Status bezahlt/offen (volle Beträge, keine Verteilung)."""
+    """Due contract/loan payments in the month, with status paid/open (full amounts, no distribution)."""
     out = []
     with core.db() as con:
         for c in [dict(r) for r in con.execute("SELECT * FROM contracts WHERE active = 1")]:
@@ -235,12 +236,12 @@ async def plan(month: str):
     pub = core.PAPERLESS_PUBLIC_URL
     for o in orders + recent_done:
         o["url"] = f"{pub}/documents/{o['doc_id']}/details" if o["doc_id"] else None
-    # offene Bestellungen zählen im Monat, in dem sie erwartet werden; überfällige im laufenden Monat
+    # open orders count in the month in which they are expected; overdue ones in the current month
     in_month = [o for o in orders if (start.isoformat() <= (o["expected"] or o["date"]) < end.isoformat())
                 or (cur_m and (o["expected"] or o["date"]) < start.isoformat())]
-    if start > today:      # Zukunft: nur was dann erwartet wird
+    if start > today:      # future: only what is expected then
         in_month = [o for o in orders if start.isoformat() <= (o["expected"] or o["date"]) < end.isoformat()]
-    elif end <= today:     # Vergangenheit: keine offenen Vormerkungen mehr einrechnen
+    elif end <= today:     # past: no longer include open planned items
         in_month = []
     orders_sum = round(sum(o["amount"] or 0 for o in in_month), 2)
     income = s["total_income"]
@@ -259,7 +260,7 @@ FIELDS = ["date", "expected", "merchant", "description", "amount", "note", "stat
 @router.post("/api/orders", status_code=201)
 def add_order(body: dict = Body(...)):
     if not (body.get("merchant") or "").strip():
-        raise HTTPException(400, "Händler angeben")
+        raise HTTPException(400, _t("Enter a merchant"))
     od = _d(body.get("date")) or date.today()
     exp = _d(body.get("expected")) or od + timedelta(days=_expect_days())
     with core.db() as con:
@@ -276,7 +277,7 @@ def update_order(oid: int, body: dict = Body(...)):
         data.update(done_ref=None, done_title=None, done_at=None)
     elif data.get("status") in ("done", "cancelled"):
         data.update(done_at=datetime.now().isoformat(timespec="seconds"),
-                    done_title=body.get("done_title") or ("von Hand erledigt" if data["status"] == "done" else "storniert"))
+                    done_title=body.get("done_title") or (_t("marked done by hand") if data["status"] == "done" else _t("cancelled")))
         data.setdefault("done_ref", f"manual:{oid}")
     if data:
         with core.db() as con:
@@ -286,11 +287,11 @@ def update_order(oid: int, body: dict = Body(...)):
 
 @router.delete("/api/orders/{oid}", status_code=204)
 def delete_order(oid: int):
-    """Manuelle löschen; Paperless-Vormerkungen nur stornieren (sonst würden sie neu importiert)."""
+    """Delete manual ones; only cancel Paperless planned items (otherwise they would be imported again)."""
     with core.db() as con:
         r = con.execute("SELECT source FROM planned WHERE id = ?", (oid,)).fetchone()
         if r and r["source"] == "paperless":
-            con.execute("UPDATE planned SET status = 'cancelled', done_title = 'gelöscht', done_ref = ? WHERE id = ?", (f"manual:{oid}", oid))
+            con.execute("UPDATE planned SET status = 'cancelled', done_title = ?, done_ref = ? WHERE id = ?", (_t("deleted by hand"), f"manual:{oid}", oid))
         else:
             con.execute("DELETE FROM planned WHERE id = ?", (oid,))
     return Response(status_code=204)

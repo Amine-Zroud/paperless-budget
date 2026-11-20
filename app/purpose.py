@@ -1,12 +1,12 @@
-"""Zweck einer Rechnung/Quittung aus dem OCR-Text lesen ("wofür ist dieser Beleg?").
+"""Read the purpose of an invoice/receipt from the OCR text ("what is this receipt for?").
 
-Reihenfolge der Heuristiken (die erste, die etwas Brauchbares liefert, gewinnt):
-  1. Schlüsselwort mit Doppelpunkt: Betreff, Betrifft, Zahlungszweck, Verwendungszweck, Leistung, …
-  2. Swiss QR-Rechnung: Text unter "Zusätzliche Informationen"
-  3. Betreffzeile wie "Rechnung für …", "Prämienrechnung 2026", "Rechnung Service Golf"
-  4. Erste Position einer Artikeltabelle (Kopfzeile mit Bezeichnung/Beschreibung/Artikel + Menge/Preis/Betrag)
-Zusätzlich wird ein Leistungszeitraum angehängt, falls vorhanden.
-Ohne Abhängigkeiten, damit es sich isoliert testen lässt.
+Order of the heuristics (the first one that yields something usable wins):
+  1. keyword with colon: subject, re, payment purpose, reference, service, …
+  2. Swiss QR bill: text under "Zusätzliche Informationen" (additional information)
+  3. subject line such as "Rechnung für …", "Prämienrechnung 2026", "Rechnung Service Golf"
+  4. first item of an article table (header with description/article + quantity/price/amount)
+In addition, a service period is appended, if present.
+Without dependencies so that it can be tested in isolation.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ SUBJECT_RE = re.compile(
 SUBJECT_FOR_RE = re.compile(r"\b(?:für|betreffend|betr\.)\s+(?P<v>[^\d].{2,70})$", re.I)
 SUBJECT_JUNK_RE = re.compile(
     r"^(?:[\wäöüÄÖÜ-]*rechnung|quittung|abrechnung|gutschrift)\s*(?:nr\.?|nummer|datum|no\.?|#|betrag|total|an|vom|per|$)", re.I)
-WEAK_RE = re.compile(r"^(bestellung|auftrag|order|lieferung|kunde)\b", re.I)   # nur Notlösung, Tabelle ist aussagekräftiger
+WEAK_RE = re.compile(r"^(bestellung|auftrag|order|lieferung|kunde)\b", re.I)   # only a fallback, the table is more meaningful
 HEAD_RE = re.compile(r"\b(bezeichnung|beschreibung|artikel|leistung|position|produkt|text)\b", re.I)
 HEAD2_RE = re.compile(r"\b(menge|anzahl|stk|preis|betrag|total|einheit)\b", re.I)
 END_TABLE_RE = re.compile(r"^\s*(total|summe|zwischentotal|subtotal|mwst|netto|brutto|rabatt|versand)\b", re.I)
@@ -43,7 +43,7 @@ def _clean(s: str, item: bool = False) -> str:
     s = REFNO_RE.sub(" ", s)
     s = re.sub(r"\b\d{1,2}:\d{2}(?::\d{2})?\b", " ", s)
     if item:
-        s = re.sub(r"(?<![\d'’])\d+[.,]\d{2}\b", " ", s)   # Preise ohne Tausender-Trenner (sonst frisst "1 420.00" die Menge)
+        s = re.sub(r"(?<![\d'’])\d+[.,]\d{2}\b", " ", s)   # prices without thousands separator (otherwise "1 420.00" swallows the quantity)
     s = re.sub(DATE, " ", s)
     s = re.sub(AMT, " ", s)
     s = re.sub(r"\b(chf|eur|stk\.?)\b", " ", s, flags=re.I)
@@ -66,7 +66,7 @@ def extract_purpose(content: str) -> Optional[str]:
         return None
     found: Optional[str] = None
 
-    # 1. Schlüsselwort mit Doppelpunkt
+    # 1. keyword with colon
     for l in lines:
         m = KEY_RE.match(l)
         if m:
@@ -75,7 +75,7 @@ def extract_purpose(content: str) -> Optional[str]:
                 found = v
                 break
 
-    # 2. QR-Rechnung "Zusätzliche Informationen"
+    # 2. QR bill "Zusätzliche Informationen" (additional information)
     if not found:
         for i, l in enumerate(lines):
             m = QR_RE.match(l)

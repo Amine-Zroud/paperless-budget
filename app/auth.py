@@ -1,16 +1,16 @@
-"""Benutzer & Rechte: Passwort-Hashing und Zuordnung jeder API-Route zu einem Bereich.
+"""Users & permissions: password hashing and assignment of every API route to an area.
 
 Bereiche (je Benutzer: none | view | edit):
-  budget     Übersicht, Ausgaben, Erfassen, Rest vom Lohn, Vormerkungen
-  bank       Abgleich (Kontoauszüge, Buchungen, Regeln)
+  budget     overview, expenses, capture, left of salary, planned items
+  bank       reconciliation (bank statements, transactions, rules)
   vehicles   Fahrzeuge, Tankkarten, Parkingpay, Traccar
   realestate Immobilien, Nebenkosten, Mieten
   projects   Projekte
-  contracts  Verträge, Kredite, Abos
+  contracts  contracts, loans, subscriptions
   income     Einnahmen, Lohnregeln, Lohnabrechnungen
-  meters     Zähler, Ablesungen, Prognose
-Administratoren dürfen alles, inkl. Einstellungen, Benutzer, Backup.
-GET = ansehen, alle anderen Methoden = bearbeiten. Unbekannte Routen: nur Administratoren.
+  meters     meters, readings, forecast
+Administrators may do everything, including settings, users, backup.
+GET = view, all other methods = edit. Unknown routes: administrators only.
 """
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ import re
 import secrets
 from typing import Optional
 
-AREAS = [("budget", "Budget (Übersicht, Ausgaben, Erfassen)"), ("bank", "Abgleich / Kontoauszüge"), ("vehicles", "Fahrzeuge"),
-         ("realestate", "Immobilien"), ("projects", "Projekte"), ("contracts", "Verträge & Abos"), ("income", "Einnahmen & Lohn"),
-         ("meters", "Zähler & Energie")]
+AREAS = [("budget", "Budget (overview, expenses, capture)"), ("bank", "Reconciliation / bank statements"), ("vehicles", "Vehicles"),
+         ("realestate", "Properties"), ("projects", "Projects"), ("contracts", "Contracts & subscriptions"), ("income", "Income & salary"),
+         ("meters", "Meters & energy")]
 AREA_KEYS = [a for a, _ in AREAS]
 LEVEL = {"none": 0, "view": 1, "edit": 2}
 
@@ -50,15 +50,15 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-# (Muster, Bereich) – Reihenfolge zählt, erster Treffer gilt. Bereich "common" = jeder angemeldete Benutzer,
-# "admin" = nur Administratoren, ("any", [Bereiche]) = Recht in einem der Bereiche genügt.
+# (pattern, area) – order matters, first match wins. Area "common" = every signed-in user,
+# "admin" = administrators only, ("any", [areas]) = permission in any one of the areas is enough.
 _RE_ENT = {"contracts": "contracts", "contract-versions": "contracts", "projects": "projects"}
 RULES: list[tuple[str, object]] = [
     (r"^/api/(me|logout)(/|$)", "common"),
     (r"^/api/(meta|health)$", "common"),
-    (r"^/api/settings$", "common-get"),            # lesen alle, ändern nur Admin
+    (r"^/api/settings$", "common-get"),            # everyone may read, only admins may change
     (r"^/api/budgets$", ("budget", "common-get")),
-    (r"^/api/vehicles$", ("vehicles", "common-get")),   # Fahrzeugliste braucht auch der Abgleich
+    (r"^/api/vehicles$", ("vehicles", "common-get")),   # reconciliation also needs the vehicle list
     (r"^/api/exclude-reasons$", "budget"),
     (r"^/api/(users|status|backup|restore|setup|maintenance|export)(/|$)", "admin"),
     (r"^/api/(summary|trend|month-items|expenses|excluded|review|plan|orders)(/|$)", "budget"),
@@ -82,7 +82,7 @@ def required(path: str, method: str) -> tuple[str, Optional[list[str]], int]:
     if path in PUBLIC_PATHS:
         return "public", None, 0
     if not path.startswith("/api/"):
-        return "common", None, 0          # Seiten und Skripte nur angemeldet (Daten kommen ohnehin nur über die API)
+        return "common", None, 0          # pages and scripts only when signed in (data only comes through the API anyway)
     lvl = LEVEL["view"] if method in ("GET", "HEAD", "OPTIONS") else LEVEL["edit"]
     for pat, area in RULES:
         if not re.search(pat, path):
@@ -121,7 +121,7 @@ def allowed(user: Optional[dict], path: str, method: str) -> bool:
 
 
 def can(user: Optional[dict], area: str, level: str = "view") -> bool:
-    """Für Endpunkte, die Teile ausblenden (z.B. Einnahmen in der Übersicht). Ohne Benutzerverwaltung: alles erlaubt."""
+    """For endpoints that hide parts (e.g. income on the overview). Without user management: everything allowed."""
     if user is None or user.get("is_admin"):
         return True
     return LEVEL.get((user.get("perms") or {}).get(area, "none"), 0) >= LEVEL[level]

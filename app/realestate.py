@@ -1,21 +1,21 @@
-"""Liegenschaften: Nebenkostenabrechnung berechnen und als Word-Dokument erzeugen.
+"""Properties: calculate the utility cost statement and generate it as a Word document.
 
-Ohne Abhängigkeit zu FastAPI/Paperless, damit es sich isoliert testen lässt.
+Without dependency on FastAPI/Paperless so that it can be tested in isolation.
 
 Modell
-  Haus (property)        – Adresse, Eigentümer, Abrechnungsperiode, Heizpool-Aufteilung (z.B. 70 % Raumheizung / 30 % Warmwasser)
-  Wohnung (unit)         – Name, Fläche, selbst bewohnt
-  Verteilschlüssel (key) – feste Prozente pro Wohnung (oder Fläche / gleichmässig)
-  Kostenart (category)   – Gruppe (z.B. "Heizkosten", "Wasser"), Schlüssel, gehört zum Heizpool ja/nein
-  Kostenposition         – aus Beleg, Fixkosten oder manuell; entweder per Schlüssel verteilt
-                           oder direkt einer Wohnung belastet (unit_id)
+  Building (property)    – address, owner, billing period, heating pool split (e.g. 70 % space heating / 30 % hot water)
+  Flat (unit)            – name, area, owner-occupied
+  Distribution key (key) – fixed percentages per flat (or area / evenly)
+  Cost type (category)  – group (e.g. "Heizkosten", "Wasser"), key, belongs to the heating pool yes/no
+  Cost item              – from a receipt, fixed costs or manual; either distributed by key
+                           or charged directly to a flat (unit_id)
 
-Berechnung für eine Wohnung und ein Mietverhältnis
-  Anteil = Betrag × Schlüssel-Anteil der Wohnung × Nutzungstage / Periodentage
-  Heizpool (alle Kostenarten mit heating=1): Summe × Raumheizung-% → Schlüssel "Raumheizung",
-                                             Summe × (1 − Raumheizung-%) → Schlüssel "Warmwasser"
-  Direkt belastete Positionen zählen zu 100 % (ebenfalls nach Nutzungstagen).
-  Das Total wird auf 5 Rappen gerundet (Rundungsdifferenz wird ausgewiesen).
+Calculation for a flat and a tenancy
+  Share = amount × key share of the flat × days of use / days in period
+  Heating pool (all cost types with heating=1): sum × space heating % → key "Raumheizung",
+                                             sum × (1 − space heating %) → key "Warmwasser"
+  Directly charged items count at 100 % (also by days of use).
+  The total is rounded to 5 centimes (the rounding difference is shown).
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from typing import Optional
 
 
 def r2(x: float) -> float:
-    """Kaufmännisch auf Rappen runden (0.005 → aufrunden)."""
+    """Round commercially to centimes (0.005 → round up)."""
     return float(Decimal(str(x)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
@@ -41,18 +41,18 @@ def chf(x: float, sign: bool = False) -> str:
 
 
 def overlap_days(a0: date, a1: date, b0: date, b1: date) -> int:
-    """Anzahl Tage der Überschneidung zweier Zeiträume (je inklusive)."""
+    """Number of days of overlap between two periods (both inclusive)."""
     s, e = max(a0, b0), min(a1, b1)
     return max(0, (e - s).days + 1)
 
 
 def months_in(a0: date, a1: date) -> float:
-    """Monate (anteilig nach Tagen) – für monatliche Fixkosten und Akonto."""
+    """Months (pro rata by days) – for monthly fixed costs and advance payments."""
     return overlap_days(a0, a1, a0, a1) / 365.0 * 12
 
 
 def period_for(start_month: int, year: int) -> tuple[date, date]:
-    """Abrechnungsperiode, die im Jahr `year` beginnt (z.B. 1.3.2025–28.2.2026)."""
+    """Billing period that starts in the year `year` (e.g. 1.3.2025–28.2.2026)."""
     s = date(year, start_month, 1)
     e_year, e_month = (year + 1, start_month) if start_month > 1 else (year + 1, 1)
     e = date(e_year, e_month, 1) - timedelta(days=1)
@@ -101,7 +101,7 @@ class Cost:
     amount: float
     label: str = ""
     quantity: Optional[float] = None
-    unit_id: Optional[int] = None    # direkt dieser Wohnung belastet
+    unit_id: Optional[int] = None    # charged directly to this flat
     source: str = ""                 # Beleg | Fix | Manuell | Bank
     date: Optional[date] = None
 
@@ -123,7 +123,7 @@ def compute_statement(*, units: list[Unit], keys: list[Key], categories: list[Ca
         return k.share(unit_id, units) if k else 0.0
 
     def key_info(key_id: Optional[int]) -> Optional[dict]:
-        """Kennzahlen eines Schlüssels für die Abrechnung: Total Anteile, Anteil der Wohnung, Einheit."""
+        """Figures of a key for the statement: total shares, share of the flat, unit."""
         k = key_by.get(key_id)
         if not k:
             return None
@@ -160,7 +160,7 @@ def compute_statement(*, units: list[Unit], keys: list[Key], categories: list[Ca
     room_unit = r2(room_total * room_share * factor)
     water_unit = r2(water_total * water_share * factor)
 
-    # --- übrige Gruppen (und direkt belastete Positionen, auch Heizung)
+    # --- remaining groups (and directly charged items, including heating)
     groups: dict[str, dict] = {}
     for c in costs:
         cat = cat_by.get(c.category_id)
@@ -169,7 +169,7 @@ def compute_statement(*, units: list[Unit], keys: list[Key], categories: list[Ca
         if c.unit_id is not None and c.unit_id != unit_id:
             continue
         if c.unit_id is not None and c.date and not (stay[0] <= c.date <= stay[1]):
-            continue   # direkt belastet, aber ausserhalb dieses Mietverhältnisses
+            continue   # charged directly, but outside this tenancy
         g = groups.setdefault(cat.grp, {"name": cat.grp, "rows": {}, "sort": cat.sort})
         direct = c.unit_id is not None
         k = (cat.id, direct, c.label if direct else "")
@@ -188,7 +188,7 @@ def compute_statement(*, units: list[Unit], keys: list[Key], categories: list[Ca
         rows = []
         for row in sorted(g["rows"].values(), key=lambda x: (x["sort"], x["name"])):
             row["total"] = r2(row["total"])
-            # direkt belastete Positionen zählen voll (sie fallen in die Mietdauer), verteilte nach Nutzungstagen
+            # directly charged items count in full (they fall within the tenancy), distributed ones by days of use
             row["unit_amount"] = r2(row["total"] * row["share"] * (1 if row["direct"] else factor))
             row["share_pct"] = round(row["share"] * 100, 2)
             rows.append(row)
@@ -236,7 +236,7 @@ def _n3(x: float) -> str:
 
 def build_docx(path: str, st: dict, *, owner: dict, tenant: dict, prop: dict, invoice_date: date, due_days: int = 30,
                intro: Optional[str] = None, closing: Optional[str] = None) -> str:
-    """Abrechnung als .docx im Aufbau der Vorlage: Brief (Seite 1), Kostenübersicht (Seite 2), Details (ab Seite 3)."""
+    """Statement as .docx in the structure of the template: letter (page 1), cost overview (page 2), details (from page 3)."""
     from docx import Document
     from docx.enum.section import WD_ORIENT  # noqa: F401
     from docx.enum.table import WD_TABLE_ALIGNMENT
@@ -458,7 +458,7 @@ def build_docx(path: str, st: dict, *, owner: dict, tenant: dict, prop: dict, in
         para(txt, bold=True, size=9.5, before=22)
     page_break()
 
-    # ================================================================ Seite 2: Kostenübersicht
+    # ================================================================ Page 2: cost overview
     bar("Kostenübersicht", "000000")
     gap(10)
     W = [7.5, 3.0, 4.5]
@@ -548,7 +548,7 @@ def build_docx(path: str, st: dict, *, owner: dict, tenant: dict, prop: dict, in
             cell_border(c, top=("single", 6), bottom=("single", 6), left=("single", 6), right=("single", 6))
 
     def alloc_rows(left, right, items, saldo_label, saldo_value):
-        """Zuweisungsblock: links Bezeichnung/Betrag/Anteile/CHF pro Einheit, rechts (grau) Ihr Anteil/Tage/%/Gesamt."""
+        """Assignment block: left label/amount/shares/CHF per unit, right (grey) your share/days/%/total."""
         ctext(left, "Zuweisung", size=8)
         Wl = [3.0, 2.4, 2.6, 1.8]
         tl = table(Wl, left)
@@ -632,7 +632,7 @@ def build_docx(path: str, st: dict, *, owner: dict, tenant: dict, prop: dict, in
             cell_border(cells[4], bottom=("double", 6))
         gap(8)
 
-    # ---- übrige Gruppen
+    # ---- remaining groups
     for gi, g in enumerate(st["groups"]):
         color = group_color(g["name"], gi)
         keys = {r["key_info"]["id"] if r.get("key_info") else None for r in g["rows"]}
@@ -684,7 +684,7 @@ def build_docx(path: str, st: dict, *, owner: dict, tenant: dict, prop: dict, in
     cp.paragraph_format.keep_with_next = gp_.paragraph_format.keep_with_next = True
     para(owner.get("name", ""), bold=True, size=9)
 
-    # leere Absätze in Tabellenzellen (Platzhalter vor/nach verschachtelten Tabellen) flach machen
+    # flatten empty paragraphs in table cells (placeholders before/after nested tables)
     from docx.enum.text import WD_LINE_SPACING
 
     def flatten(tables):

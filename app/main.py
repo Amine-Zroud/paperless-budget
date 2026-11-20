@@ -1,9 +1,9 @@
-"""Paperless Budget – Budget-Web-App auf Basis der Paperless-ngx REST-API.
+"""Paperless Budget – budget web app based on the Paperless-ngx REST API.
 
-Das Backend ist ein schlanker Proxy: Der Paperless-API-Token bleibt serverseitig,
-Budgets, Einnahmen und Einstellungen liegen in einer lokalen SQLite-Datenbank.
-Ausgaben = Paperless-Dokumente mit gesetztem Custom Field (monetary, Standard "Total").
-Kategorien = Paperless-Tags, die in den Einstellungen als Budget-Kategorie markiert sind.
+The backend is a thin proxy: the Paperless API token stays on the server,
+budgets, income and settings live in a local SQLite database.
+Expenses = Paperless documents with a custom field set (monetary, default "Total").
+Categories = Paperless tags marked as a budget category in the settings.
 """
 import base64
 import hashlib
@@ -26,17 +26,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import auth as au, bank, parking as pk, payslip as pay, purpose as purp, vehicles as veh
+from .i18n import _t, pick_lang, set_lang
 
 # ---------------------------------------------------------------- Konfiguration
 PAPERLESS_URL = os.environ.get("PAPERLESS_URL", "http://paperless:8000").rstrip("/")
 PAPERLESS_TOKEN = os.environ.get("PAPERLESS_TOKEN", "")
 PAPERLESS_PUBLIC_URL = os.environ.get("PAPERLESS_PUBLIC_URL", PAPERLESS_URL).rstrip("/")
 PAPERLESS_HOST_HEADER = os.environ.get("PAPERLESS_HOST_HEADER", "").strip()
-log = logging.getLogger("paperless-budget")   # optional: Host-Name, den Paperless erlaubt
+log = logging.getLogger("paperless-budget")   # optional: host name that Paperless allows
 PAPERLESS_API_VERSION = os.environ.get("PAPERLESS_API_VERSION", "")
 PAPERLESS_VERIFY_SSL = os.environ.get("PAPERLESS_VERIFY_SSL", "true").lower() != "false"
 AMOUNT_FIELD_NAME = os.environ.get("AMOUNT_FIELD_NAME", "Total")
-CURRENCY = os.environ.get("CURRENCY", "CHF").upper()
+CURRENCY = os.environ.get("CURRENCY", "EUR").upper()
 DB_PATH = os.environ.get("DB_PATH", "/data/budget.db")
 AUTH_USER = os.environ.get("BASIC_AUTH_USER", "")
 AUTH_PASS = os.environ.get("BASIC_AUTH_PASSWORD", "")
@@ -49,39 +50,39 @@ TRACCAR_URL = os.environ.get("TRACCAR_URL", "").rstrip("/")
 TRACCAR_TOKEN = os.environ.get("TRACCAR_TOKEN", "")
 TRACCAR_USER = os.environ.get("TRACCAR_USER", "")
 TRACCAR_PASSWORD = os.environ.get("TRACCAR_PASSWORD", "")
-TRACCAR_VERIFY_SSL = os.environ.get("TRACCAR_VERIFY_SSL", "true").lower() != "false"  # Rechnung darf so viele Tage NACH der Zahlung datiert sein
+TRACCAR_VERIFY_SSL = os.environ.get("TRACCAR_VERIFY_SSL", "true").lower() != "false"  # invoice may be dated this many days AFTER the payment
 
 STATIC_DIR = Path(__file__).parent / "static"
 APP_VERSION = "2026.10.30"
 DOC_FIELDS = "id,title,created,correspondent,document_type,tags,custom_fields"
 DEFAULT_SETTINGS = {
-    "category_tag_ids": [],         # Reihenfolge = Priorität, falls ein Dokument mehrere Kategorie-Tags hat
-    "review_document_type_ids": [],  # "Erfassen"-Ansicht: nur diese Dokumenttypen (leer = alle)
-    "review_tag_ids": [],            # "Erfassen"-Ansicht: nur Dokumente mit einem dieser Tags (leer = alle)
-    "statement_document_type_ids": [],  # Kontoauszüge erkennen: Dokumenttypen
-    "statement_tag_ids": [],            # Kontoauszüge erkennen: Tags
-    "match_window_days": 60,            # Rechnung höchstens so viele Tage vor der Zahlung
-    "fuel_correspondent_ids": [],       # Tankkarten-Rechnungen erkennen: Korrespondenten (z.B. Vögtlin-Meyer)
-    "fuel_tag_ids": [],                 # ... oder Tags
-    "parking_correspondent_ids": [],    # Parkingpay-Auszüge erkennen: Korrespondenten
-    "parking_tag_ids": [],              # ... oder Tags
-    "payslip_document_type_ids": [],    # Lohnabrechnungen erkennen (zusätzlich: Titel enthält "Lohnabrechnung")
+    "category_tag_ids": [],         # order = priority, if a document has several category tags
+    "review_document_type_ids": [],  # "Capture" view: only these document types (empty = all)
+    "review_tag_ids": [],            # "Capture" view: only documents with one of these tags (empty = all)
+    "statement_document_type_ids": [],  # recognise bank statements: document types
+    "statement_tag_ids": [],            # recognise bank statements: tags
+    "match_window_days": 60,            # invoice at most this many days before the payment
+    "fuel_correspondent_ids": [],       # recognise fuel card invoices: correspondents (e.g. Vögtlin-Meyer)
+    "fuel_tag_ids": [],                 # ... or tags
+    "parking_correspondent_ids": [],    # recognise Parkingpay statements: correspondents
+    "parking_tag_ids": [],              # ... or tags
+    "payslip_document_type_ids": [],    # recognise payslips (additionally: title contains "Lohnabrechnung")
     "payslip_tag_ids": [],
-    "exclude_tag_ids": [],              # Dokumente mit diesen Tags nie im Budget (z.B. "Geschäft")
-    # Namen in Paperless (Startwert aus der .env, in der App änderbar)
+    "exclude_tag_ids": [],              # documents with these tags never count in the budget (e.g. "Geschäft")
+    # names in Paperless (initial value from .env, changeable in the app)
     "amount_field_name": AMOUNT_FIELD_NAME,
     "paid_tag_name": PAID_TAG_NAME,
     "paid_field_name": PAID_FIELD_NAME,
     "order_tag_name": ORDER_TAG_NAME,
     "nk_tag_name": os.environ.get("NK_TAG_NAME", "Nebenkostenabrechnung"),
     "order_expect_days": int(os.environ.get("ORDER_EXPECT_DAYS", "30")),
-    "exclude_reasons": ["Geschäftlich", "Rückerstattet", "Von jemand anderem bezahlt", "Doppelt erfasst", "Kein Haushaltsausgabe"],
-    "contract_notice_days": 120,        # Kündigungstermine so viele Tage im Voraus hervorheben
-    "contract_badge_days": 30,          # ... und ab so vielen Tagen eine Zahl am Tab zeigen
-    "contract_categories": ["Versicherung", "Krankenkasse", "Telefon/Internet", "Energie", "Abo/Streaming", "Mitgliedschaft",
-                            "Miete", "Leasing", "Service/Wartung", "Sonstiges"],
-    "loan_categories": ["Hypothek", "Privatkredit", "Leasing", "Darlehen", "Sonstiges"],
-    "abo_categories": ["Streaming", "Musik", "Software/Cloud", "Zeitung/Magazin", "Fitness", "Mobilität", "Spiele", "Sonstiges"],
+    "exclude_reasons": ["Business", "Reimbursed", "Paid by someone else", "Entered twice", "Not a household expense"],  # shown as stored; edit in Settings
+    "contract_notice_days": 120,        # highlight cancellation deadlines this many days in advance
+    "contract_badge_days": 30,          # ... and from this many days show a number on the tab
+    "contract_categories": ["Insurance", "Health insurance", "Phone/Internet", "Energy", "Subscription/Streaming", "Membership",
+                            "Rent", "Leasing", "Service/Maintenance", "Other"],
+    "loan_categories": ["Mortgage", "Personal loan", "Leasing", "Loan", "Other"],
+    "abo_categories": ["Streaming", "Music", "Software/Cloud", "Newspaper/Magazine", "Fitness", "Mobility", "Games", "Other"],
     "abo_ignore": [],
     "last_backup": None,
 }
@@ -90,7 +91,7 @@ NAME_KEYS = {"amount_field_name", "paid_tag_name", "paid_field_name", "order_tag
 app = FastAPI(title="Paperless Budget")
 
 
-# ---------------------------------------------------------------- Anmeldung: Benutzerverwaltung (oder optional Basic Auth)
+# ---------------------------------------------------------------- Sign-in: user management (or optionally Basic Auth)
 import contextvars  # noqa: E402
 
 CURRENT_USER: contextvars.ContextVar = contextvars.ContextVar("current_user", default=None)
@@ -129,10 +130,10 @@ async def basic_auth(request: Request, call_next):
         user = session_user(request.cookies.get("pb_session"))
         if not user and not au.allowed(None, path, request.method):
             if path.startswith("/api/"):
-                return JSONResponse({"detail": "Nicht angemeldet"}, status_code=401)
+                return JSONResponse({"detail": _t("Not signed in")}, status_code=401)
             return RedirectResponse("/login.html", status_code=302)
         if user and not au.allowed(user, path, request.method):
-            return JSONResponse({"detail": "Keine Berechtigung für diesen Bereich"}, status_code=403)
+            return JSONResponse({"detail": _t("No permission for this area")}, status_code=403)
         tok = CURRENT_USER.set(user)
         try:
             return await call_next(request)
@@ -347,7 +348,7 @@ init_db()
 
 
 def migrate_db():
-    """Spalten nachrüsten, die in älteren Versionen fehlen."""
+    """Add columns that are missing in older versions."""
     wanted = {"transactions": {"card": "TEXT", "vehicle_id": "INTEGER", "merchant": "TEXT"}, "rules": {"vehicle_id": "INTEGER"},
               "vehicles": {"km_source": "TEXT", "plates": "TEXT"}, "parking_entries": {"end_time": "TEXT", "driver": "TEXT"},
               "traccar_day_km": {"failed": "INTEGER"}, "payslips": {"extras": "TEXT"},
@@ -363,7 +364,7 @@ def migrate_db():
 
 
 migrate_db()
-with db() as _c:   # früherer Parkingpay-Link-Abruf: gespeicherten Link (enthält einen Schlüssel) entfernen
+with db() as _c:   # former Parkingpay link retrieval: remove the stored link (contains a key)
     _c.execute("DELETE FROM settings WHERE key LIKE 'parkingpay_%'")
 
 
@@ -401,7 +402,7 @@ def client() -> httpx.AsyncClient:
 
 
 def _disallowed_host(r: httpx.Response) -> bool:
-    """Django lehnt den Host-Namen ab (PAPERLESS_ALLOWED_HOSTS) – kommt als nackte HTML-Seite „Bad Request (400)“."""
+    """Django rejects the host name (PAPERLESS_ALLOWED_HOSTS) – comes as a bare HTML page "Bad Request (400)"."""
     return r.status_code == 400 and "<h1>Bad Request (400)</h1>" in r.text
 
 
@@ -410,25 +411,24 @@ async def pl_request(method: str, path: str, **kw):
         r = await client().request(method, path, **kw)
         pub = httpx.URL(PAPERLESS_PUBLIC_URL).host
         if _disallowed_host(r) and pub and pub != httpx.URL(PAPERLESS_URL).host and client().headers.get("Host") != pub:
-            # interne Adresse nicht in ALLOWED_HOSTS: mit dem öffentlichen Host-Namen erneut versuchen und dabei bleiben
+            # internal address not in ALLOWED_HOSTS: retry with the public host name and stick with it
             log.warning("Paperless lehnt Host %s ab – verwende Host-Header %s", httpx.URL(PAPERLESS_URL).host, pub)
             client().headers["Host"] = pub
             r = await client().request(method, path, **kw)
     except httpx.HTTPError as e:
-        raise HTTPException(502, f"Paperless nicht erreichbar ({PAPERLESS_URL}): {e}")
+        raise HTTPException(502, _t("Paperless not reachable ({url}): {err}", url=PAPERLESS_URL, err=e))
     if _disallowed_host(r):
-        raise HTTPException(502, f"Paperless lehnt den Host-Namen „{client().headers.get('Host') or httpx.URL(PAPERLESS_URL).host}“ ab "
-                                 f"(Fehler 400). In Paperless PAPERLESS_ALLOWED_HOSTS bzw. PAPERLESS_URL prüfen – oder hier PAPERLESS_URL "
-                                 f"auf eine Adresse setzen, die Paperless erlaubt (z.B. die öffentliche) bzw. PAPERLESS_HOST_HEADER setzen.")
+        raise HTTPException(502, _t("Paperless rejects the host name “{host}” (error 400). Check PAPERLESS_ALLOWED_HOSTS in Paperless and PAPERLESS_URL here – or set PAPERLESS_URL to an address Paperless allows (e.g. the public one) or set PAPERLESS_HOST_HEADER.",
+                                    host=client().headers.get('Host') or httpx.URL(PAPERLESS_URL).host))
     if r.status_code == 401 or r.status_code == 403:
-        raise HTTPException(502, "Paperless lehnt den API-Token ab (401/403). PAPERLESS_TOKEN prüfen.")
+        raise HTTPException(502, _t("Paperless rejects the API token (401/403). Check PAPERLESS_TOKEN."))
     if r.status_code >= 400:
-        raise HTTPException(502, f"Paperless-Fehler {r.status_code}: {r.text[:400]}")
+        raise HTTPException(502, _t("Paperless error {status}: {text}", status=r.status_code, text=r.text[:400]))
     return r.json() if r.content else None
 
 
 async def pl_all(path: str, params: Optional[dict] = None) -> list:
-    """Alle Seiten einer Paperless-Liste holen (über Seitennummern, nicht über 'next'-URLs)."""
+    """Fetch all pages of a Paperless list (via page numbers, not via 'next' URLs)."""
     params = dict(params or {})
     params["page_size"] = 100
     page, out = 1, []
@@ -480,7 +480,7 @@ async def get_meta(force: bool = False) -> dict:
 def require_amount_field(meta: dict) -> int:
     if not meta["amount_field"]:
         raise HTTPException(
-            409, f"Custom Field '{get_settings()['amount_field_name']}' existiert in Paperless nicht – in der App unter 'Übersicht' anlegen."
+            409, _t("Custom field '{name}' does not exist in Paperless – create it in the app under 'Overview'.", name=get_settings()['amount_field_name'])
         )
     return meta["amount_field"]["id"]
 
@@ -490,7 +490,7 @@ _num = re.compile(r"-?\d+(?:[.,]\d+)?")
 
 
 def parse_amount(value) -> Optional[float]:
-    """Paperless liefert monetary-Werte als 'CHF12.50' (oder ältere Versionen: '12.50')."""
+    """Paperless returns monetary values as 'CHF12.50' (or older versions: '12.50')."""
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
@@ -504,7 +504,7 @@ def month_range(month: str) -> tuple[date, date]:
         y, m = (int(x) for x in month.split("-"))
         start = date(y, m, 1)
     except Exception:
-        raise HTTPException(400, "Monat im Format JJJJ-MM angeben")
+        raise HTTPException(400, _t("Specify the month as YYYY-MM"))
     end = date(y + (m == 12), 1 if m == 12 else m + 1, 1)
     return start, end
 
@@ -538,11 +538,11 @@ def exclusion(doc_id: int, tags: list[int], flags: dict, settings: dict, tag_nam
     hit = next((t for t in settings.get("exclude_tag_ids") or [] if t in tags), None)
     if hit is not None:
         return True, tag_names.get(hit, "Tag"), "tag"
-    # Kontoauszüge sind keine Ausgabe – ihre Buchungen kommen über den Abgleich
+    # bank statements are not an expense – their transactions come through the reconciliation
     if (doc_type and doc_type in (settings.get("statement_document_type_ids") or [])) or \
             set(tags) & set(settings.get("statement_tag_ids") or []):
         return True, "Kontoauszug", "tag"
-    # Bestellbestätigungen sind nur vorgemerkt – gezählt wird später die Rechnung bzw. Abbuchung
+    # order confirmations are only noted – the invoice or debit is counted later
     if (doc_type and doc_type in (settings.get("payslip_document_type_ids") or [])) or \
             set(tags) & set(settings.get("payslip_tag_ids") or []) or doc_id in payslip_ids():
         return True, "Lohnabrechnung (Einnahme)", "tag"
@@ -580,7 +580,7 @@ def normalize(doc: dict, amount_field_id: Optional[int], categories: list[int], 
 
 
 async def attach_purposes(docs: list[dict]) -> list[dict]:
-    """Zweck je Dokument ergänzen: aus Cache, sonst aus dem OCR-Text lesen und speichern."""
+    """Add the purpose per document: from cache, otherwise read from the OCR text and store."""
     if not docs:
         return docs
     ids = [d["id"] for d in docs]
@@ -599,9 +599,9 @@ async def attach_purposes(docs: list[dict]) -> list[dict]:
                 found[d["id"]] = purp.extract_purpose(d.get("content") or "")
         for i in missing:
             if i in fuel:
-                found[i] = f"Treibstoff · {fuel[i]} Tankvorgänge"
+                found[i] = _t("Fuel · {n} refuellings", n=fuel[i])
             if i in parkd:
-                found[i] = f"Parkieren · {parkd[i]} Parkvorgänge"
+                found[i] = _t("Parking · {n} parking sessions", n=parkd[i])
         now = datetime.now().isoformat(timespec="seconds")
         with db() as con:
             for i in missing:
@@ -631,7 +631,7 @@ def set_purpose(doc_id: int, body: PurposeIn):
 
 @app.delete("/api/documents/{doc_id}/purpose")
 async def reset_purpose(doc_id: int):
-    """Manuellen Zweck verwerfen und neu aus der Rechnung lesen."""
+    """Discard the manual purpose and re-read it from the invoice."""
     with db() as con:
         con.execute("DELETE FROM doc_purpose WHERE doc_id = ?", (doc_id,))
     d = (await attach_purposes([{"id": doc_id}]))[0]
@@ -663,7 +663,7 @@ def alloc_amount(a: dict, full: float) -> float:
 
 
 def attach_allocations(items: list[dict], source_type: str, amount_key: str = "amount", targets: Optional[dict] = None) -> None:
-    """items[*]['allocations'] (explizit + implizit über Tag) und ['budget_reduction'] ergänzen."""
+    """Add items[*]['allocations'] (explicit + implicit via tag) and ['budget_reduction']."""
     if not items:
         return
     targets = targets or alloc_targets()
@@ -696,7 +696,7 @@ def attach_allocations(items: list[dict], source_type: str, amount_key: str = "a
 
 
 def apply_budget_reduction(items: list[dict], kind_label: str = "") -> None:
-    """Anteile, die einer Liegenschaft / einem Projekt 'ausserhalb des Haushaltsbudgets' gehören, abziehen."""
+    """Deduct shares that belong to a property / project 'outside the household budget'."""
     for it in items:
         red = it.get("budget_reduction") or 0
         if red <= 0:
@@ -708,12 +708,12 @@ def apply_budget_reduction(items: list[dict], kind_label: str = "") -> None:
             it["amount"] = 0.0
             it["excluded"], it["exclude_reason"], it["exclude_source"] = True, names, "alloc"
         elif it["amount"] > 0.005:
-            it["alloc_note"] = f"ohne {red:.2f} für {names}"
+            it["alloc_note"] = _t("excluding {amount} for {names}", amount=f"{red:.2f}", names=names)
 
 
 async def fetch_expenses(start: date, end: date, include_excluded: bool = False, budget_view: bool = False) -> list[dict]:
-    """Dokumente mit Betrag im Zeitraum. Standard: ohne die als 'nicht berücksichtigen' markierten.
-    budget_view: Anteile für Liegenschaften/Projekte ausserhalb des Haushaltsbudgets abziehen."""
+    """Documents with an amount in the period. Default: without those marked 'exclude'.
+    budget_view: deduct shares for properties/projects outside the household budget."""
     meta = await get_meta()
     fid = require_amount_field(meta)
     cats = get_settings()["category_tag_ids"]
@@ -728,7 +728,7 @@ async def fetch_expenses(start: date, end: date, include_excluded: bool = False,
         },
     )
     out = normalize_all(docs, fid, cats, await _excl_ctx())
-    # Datum zusätzlich lokal prüfen (robust gegenüber Zeitzonen/Versionen)
+    # additionally check the date locally (robust against time zones/versions)
     out = [d for d in out if d["amount"] is not None and start.isoformat() <= d["date"] < end.isoformat()]
     attach_allocations(out, "doc")
     if budget_view:
@@ -751,7 +751,7 @@ def income_rule_for(t: dict, rules: list[dict]) -> Optional[dict]:
 
 
 def _payslips_ok() -> list[dict]:
-    """Erkannte Lohnabrechnungen; „regular“ = Auszahlung ohne Sonderzahlungen (13. Monatslohn, Bonus) – für Erwartungen."""
+    """Recognised payslips; "regular" = payout without special payments (13th-month pay, bonus) – for expectations."""
     with db() as con:
         rows = [dict(r) for r in con.execute("SELECT * FROM payslips WHERE ok = 1 AND payout IS NOT NULL ORDER BY date")]
     for r in rows:
@@ -764,12 +764,12 @@ def _payslips_ok() -> list[dict]:
 
 def _extras_label(ps: dict) -> str:
     kinds = {x["kind"] for x in ps.get("extras") or []}
-    parts = (["13. Monatslohn"] if "13" in kinds else []) + (["Bonus/Prämie"] if "bonus" in kinds else [])
+    parts = ([_t("13th-month pay")] if "13" in kinds else []) + ([_t("Bonus")] if "bonus" in kinds else [])
     return f" + {' + '.join(parts)}" if parts else ""
 
 
 def match_payslips(payslips: list[dict], credits: list[dict]) -> dict[int, dict]:
-    """Lohnabrechnung ↔ Gutschrift: gleicher Betrag (±5 Rp.), Gutschrift 10 Tage vor bis 25 Tage nach dem Abrechnungsdatum."""
+    """Payslip ↔ credit: same amount (±5 cents), credit from 10 days before to 25 days after the payslip date."""
     out: dict[int, dict] = {}
     used: set = set()
     for ps in sorted(payslips, key=lambda x: x["date"] or ""):
@@ -791,18 +791,18 @@ def match_payslips(payslips: list[dict], credits: list[dict]) -> dict[int, dict]
 
 def _ps_label(ps: dict) -> str:
     who = (ps.get("person") or "").split()
-    # "Peter Muster" -> Peter, "Muster Petra" (Nachname zuerst) -> Petra: das kürzere/letzte Wort ist selten eindeutig,
-    # deshalb ganzer Name, wenn kurz genug
+    # "Peter Muster" -> Peter, "Muster Petra" (surname first) -> Petra: the shorter/last word is rarely unambiguous,
+    # hence the full name if short enough
     name = ps.get("person") or ""
     return f"Lohn {name}" if name and len(name) <= 24 else ("Lohn " + (who[0] if who else (ps.get("employer") or "")))
 
 
 def bank_incomes(start: date, end: date) -> list[dict]:
-    """Einnahmen aus Lohnabrechnungen und Gutschriften:
-    1. Lohnabrechnung mit passender Gutschrift -> die Gutschrift zählt (Quelle Bank)
-    2. Lohnabrechnung ohne Gutschrift (Auszug noch nicht eingelesen) -> der ausbezahlte Betrag zählt
-    3. übrige Gutschriften, die zu einer Einnahmen-Regel passen
-    4. im laufenden/künftigen Monat ohne Eingang: erwarteter Betrag (Regel, sonst letzte Lohnabrechnung des Arbeitgebers)"""
+    """Income from payslips and credits:
+    1. payslip with a matching credit -> the credit counts (source bank)
+    2. payslip without a credit (statement not imported yet) -> the paid-out amount counts
+    3. remaining credits that match an income rule
+    4. in the current/future month without a receipt: expected amount (rule, otherwise the employer's last payslip)"""
     with db() as con:
         rules = [dict(r) for r in con.execute("SELECT * FROM income_rules WHERE active = 1 ORDER BY id")]
         credits = [dict(r) for r in con.execute(
@@ -826,13 +826,13 @@ def bank_incomes(start: date, end: date) -> list[dict]:
             out.append({"id": f"ps{ps['doc_id']}", "description": _ps_label(ps) + _extras_label(ps), "amount": ps["payout"], "date": ps["date"],
                         "regular": ps["regular"],
                         "source": "Lohnabrechnung", "payslip_id": ps["doc_id"], "employer": ps["employer"], "recurring": 0,
-                        "detail": f"{ps['employer'] or ''} · noch keine Gutschrift gefunden"})
+                        "detail": _t("{employer} · no credit found yet", employer=ps['employer'] or '')})
     for t in credits:
         if t["id"] in matched_tx or not (s <= t["date"] < e):
             continue
         r = income_rule_for(t, rules)
         if r:
-            # deutlich kleiner als der erwartete Lohn: separate Sonderzahlung (Bonus, 13. Monatslohn), ersetzt den Lohn nicht
+            # clearly smaller than the expected salary: separate special payment (bonus, 13th-month pay), does not replace the salary
             extra = bool(r["expected"]) and t["amount"] < 0.7 * r["expected"]
             hint = re.search(r"13\.?\s*(monats)?lohn|bonus|gratifikation|pr[äa]mie", f"{t['merchant'] or ''} {t['text']}", re.I)
             out.append({"id": f"tx{t['id']}", "tx_id": t["id"], "description": r["label"] + (" (Sonderzahlung)" if extra or hint else ""),
@@ -843,7 +843,7 @@ def bank_incomes(start: date, end: date) -> list[dict]:
         t = pairs.get(ps["doc_id"])
         return f"{ps['employer'] or ''} {ps['person'] or ''} {ps['title'] or ''} {(t or {}).get('merchant') or ''} {(t or {}).get('text') or ''}"
 
-    # gelernte Zuordnung Regel ↔ Arbeitgeber/Person: Gutschriften der Regel, die zu einer Lohnabrechnung passten
+    # learned assignment rule ↔ employer/person: credits of the rule that matched a payslip
     with db() as con:
         all_credits = [dict(r) for r in con.execute(
             "SELECT id, date, amount, merchant, text FROM transactions WHERE amount > 0 AND status != 'ignored'")]
@@ -864,13 +864,13 @@ def bank_incomes(start: date, end: date) -> list[dict]:
             mk = m.strftime("%Y-%m")
             in_month = [x for x in out if x["date"][:7] == mk]
             covered_employers = {x.get("employer") for x in in_month if x.get("employer")}
-            used_ps: set = set()     # Lohnabrechnungen dieses Monats, die schon eine Regel abdecken
+            used_ps: set = set()     # payslips of this month that a rule already covers
             for r in rules:
                 lp = [ps for ps in payslips if linked(ps, r)]
                 exp = r["expected"] if r["expected"] else (next((x["regular"] for x in reversed(lp) if not x["extras"]), lp[-1]["regular"]) if lp else None)
                 hit = next((x for x in in_month if x.get("payslip_id") and x["payslip_id"] not in used_ps
                             and any(ps["doc_id"] == x["payslip_id"] for ps in lp)), None)
-                if not hit and exp:   # ohne gelernte Zuordnung: Lohnabrechnung mit ähnlichem Betrag (±5 %) zählt als Eingang
+                if not hit and exp:   # without a learned assignment: payslip with a similar amount (±5 %) counts as received
                     hit = next((x for x in in_month if x.get("payslip_id") and x["payslip_id"] not in used_ps
                                 and abs(x.get("regular", x["amount"]) - exp) <= 0.05 * exp), None)
                 if hit:
@@ -883,11 +883,11 @@ def bank_incomes(start: date, end: date) -> list[dict]:
                                 "recurring": 0})
                 for ps in lp:
                     covered_employers.add(ps["employer"])
-            # Arbeitgeber mit Lohnabrechnungen, aber ohne Regel: letzte Abrechnung als Erwartung (wenn nicht älter als 2 Monate)
+            # employer with payslips but without a rule: last payslip as expectation (if not older than 2 months)
             last_by_emp: dict = {}
             for ps in payslips:
                 key = ps["employer"] or ps["person"]
-                if not ps["extras"] or key not in last_by_emp:   # Erwartung nach der letzten normalen Abrechnung
+                if not ps["extras"] or key not in last_by_emp:   # expectation based on the last regular payslip
                     last_by_emp[key] = ps
             for emp, ps in last_by_emp.items():
                 if emp in covered_employers or any(linked(ps, r) for r in rules) or not ps["month"]:
@@ -905,7 +905,7 @@ def bank_incomes(start: date, end: date) -> list[dict]:
 
 
 def incomes_between(start: date, end: date) -> list[dict]:
-    """Einmalige Einnahmen im Zeitraum + wiederkehrende, die im Zeitraum aktiv sind + erkannte Gutschriften (Lohn …)."""
+    """One-off income in the period + recurring income active in the period + recognised credits (salary …)."""
     s, e = start.isoformat(), end.isoformat()
     with db() as con:
         rows = [dict(r) for r in con.execute("SELECT * FROM incomes ORDER BY date DESC")]
@@ -924,7 +924,7 @@ async def payslip_docs_found() -> list[dict]:
     st = get_settings()
     base = {"fields": "id,title,created,correspondent,document_type,tags", "ordering": "-created"}
     found: dict[int, dict] = {}
-    queries = [{"title__icontains": "lohnabrechnung"}]   # Titel genügt
+    queries = [{"title__icontains": "lohnabrechnung"}]   # title is enough
     if st.get("payslip_document_type_ids"):
         queries.append({"document_type__id__in": ",".join(map(str, st["payslip_document_type_ids"]))})
     if st.get("payslip_tag_ids"):
@@ -966,7 +966,7 @@ async def parse_payslip_one(doc_id: int) -> dict:
     month = ps.month or (created[:7] if created else None)
     with db() as con:
         old = con.execute("SELECT ok FROM payslips WHERE doc_id = ?", (doc_id,)).fetchone()
-        if old and old["ok"] and not ps.ok:   # von Hand ergänzte Werte nicht überschreiben
+        if old and old["ok"] and not ps.ok:   # do not overwrite values added by hand
             con.execute("UPDATE payslips SET parsed_at = ? WHERE doc_id = ?", (datetime.now().isoformat(timespec="seconds"), doc_id))
             return {"doc_id": doc_id, "title": doc.get("title"), "ok": True, "month": month, "person": ps.person, "payout": ps.payout}
         con.execute("INSERT OR REPLACE INTO payslips(doc_id, title, date, employer, person, month, gross, net, payout, child_allowance, "
@@ -1066,7 +1066,7 @@ def income_rules():
 @app.post("/api/income-rules", status_code=201)
 def add_income_rule(body: IncomeRuleIn):
     if not body.keyword.strip():
-        raise HTTPException(400, "Stichwort angeben")
+        raise HTTPException(400, _t("Enter a keyword"))
     with db() as con:
         cur = con.execute("INSERT INTO income_rules(keyword, label, expected, day, active) VALUES (?, ?, ?, ?, ?)",
                           (body.keyword.strip(), body.label.strip() or "Lohn", body.expected, body.day, int(body.active)))
@@ -1090,7 +1090,7 @@ def delete_income_rule(rid: int):
 
 @app.get("/api/income-credits")
 def income_credits(month: str):
-    """Alle Gutschriften des Monats – mit der Regel, die sie als Einnahme erkennt (oder keiner)."""
+    """All credits of the month – with the rule that recognises them as income (or none)."""
     start, end = month_range(month)
     with db() as con:
         rules = [dict(r) for r in con.execute("SELECT * FROM income_rules WHERE active = 1")]
@@ -1106,7 +1106,7 @@ def income_credits(month: str):
 
 
 def bank_expenses(start: date, end: date, categories: list[int]) -> list[dict]:
-    """Belastungen aus Kontoauszügen ohne zugeordnete Rechnung -> zählen als Ausgabe."""
+    """Debits from bank statements without an assigned invoice -> count as an expense."""
     with db() as con:
         rows = con.execute(
             "SELECT * FROM transactions WHERE status = 'open' AND amount < 0 AND date >= ? AND date < ?",
@@ -1195,7 +1195,7 @@ def write_settings(body: SettingsIn):
                 continue
             con.execute("INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)", (k, json.dumps(v)))
     if NAME_KEYS & set(body.model_dump(exclude_unset=True)):
-        _meta_cache.update(t=0, data=None)     # Tag-/Feldnamen geändert -> neu zuordnen
+        _meta_cache.update(t=0, data=None)     # tag/field names changed -> reassign
     return read_settings()
 
 
@@ -1266,7 +1266,7 @@ def update_income(income_id: int, body: IncomeIn):
         )
         row = con.execute("SELECT * FROM incomes WHERE id = ?", (income_id,)).fetchone()
     if not row:
-        raise HTTPException(404, "Einnahme nicht gefunden")
+        raise HTTPException(404, _t("Income not found"))
     return dict(row)
 
 
@@ -1280,14 +1280,14 @@ def delete_income(income_id: int):
 # ---------------------------------------------------------------- API: Ausgaben & Auswertungen
 @app.get("/api/expenses")
 async def expenses(month: str, all: bool = False):
-    """Ausgaben-Belege des Monats mit Zweck. all=true: auch die nicht berücksichtigten (excluded=true)."""
+    """Expense receipts of the month with purpose. all=true: also the excluded ones (excluded=true)."""
     start, end = month_range(month)
     return await attach_purposes(await fetch_expenses(start, end, include_excluded=all, budget_view=True))
 
 
 @app.get("/api/month-items")
 async def month_items(month: str):
-    """Alle Ausgaben des Monats für die Übersicht: Belege (auch nicht berücksichtigte) + Bankbuchungen ohne Beleg."""
+    """All expenses of the month for the overview: receipts (including excluded ones) + bank transactions without receipt."""
     start, end = month_range(month)
     st = get_settings()
     docs = await attach_purposes(await fetch_expenses(start, end, include_excluded=True, budget_view=True))
@@ -1299,7 +1299,7 @@ async def month_items(month: str):
     bank_items = []
     for r in rows:
         bank_items.append({
-            "id": r["id"], "kind": "bank", "title": "Bankbuchung ohne Beleg", "date": r["date"],
+            "id": r["id"], "kind": "bank", "title": _t("Bank transaction without receipt"), "date": r["date"],
             "amount": -r["amount"], "correspondent": None,
             "category": r["category_tag_id"] if r["category_tag_id"] in st["category_tag_ids"] else None,
             "purpose": r["merchant"] or r["text"][:60], "purpose_source": "bank",
@@ -1395,7 +1395,7 @@ async def trend(until: Optional[str] = None, months: int = 12):
 
 @app.get("/api/review")
 async def review(month: str):
-    """Dokumente im Monat ohne Betrag – zum Nacherfassen."""
+    """Documents in the month without an amount – to be captured."""
     start, end = month_range(month)
     meta = await get_meta()
     fid = require_amount_field(meta)
@@ -1417,7 +1417,7 @@ async def review(month: str):
 
 @app.get("/api/excluded")
 async def excluded_docs(month: str):
-    """Im Monat als 'nicht berücksichtigen' markierte Dokumente (mit und ohne Betrag)."""
+    """Documents marked 'exclude' in the month (with and without amount)."""
     start, end = month_range(month)
     meta = await get_meta()
     fid = require_amount_field(meta)
@@ -1459,13 +1459,13 @@ def exclude_reasons():
 
 
 class DocUpdate(BaseModel):
-    amount: Optional[float] = None        # None = Betrag entfernen (nur wenn Feld mitgeschickt)
-    category_tag_id: Optional[int] = None  # None = Kategorie-Tag entfernen (nur wenn Feld mitgeschickt)
+    amount: Optional[float] = None        # None = remove amount (only if the field was sent)
+    category_tag_id: Optional[int] = None  # None = remove category tag (only if the field was sent)
 
 
 @app.patch("/api/documents/{doc_id}")
 async def update_document(doc_id: int, body: DocUpdate):
-    """Betrag und/oder Kategorie-Tag in Paperless zurückschreiben."""
+    """Write the amount and/or category tag back to Paperless."""
     meta = await get_meta()
     fid = require_amount_field(meta)
     cats = get_settings()["category_tag_ids"]
@@ -1473,7 +1473,7 @@ async def update_document(doc_id: int, body: DocUpdate):
     payload: dict = {}
 
     if "amount" in body.model_fields_set:
-        # Paperless ersetzt beim PATCH die komplette custom_fields-Liste -> bestehende Felder übernehmen
+        # Paperless replaces the complete custom_fields list on PATCH -> keep existing fields
         cfs = [{"field": cf["field"], "value": cf.get("value")} for cf in doc.get("custom_fields") or [] if cf["field"] != fid]
         if body.amount is not None:
             cfs.append({"field": fid, "value": f"{CURRENCY}{body.amount:.2f}"})
@@ -1486,15 +1486,15 @@ async def update_document(doc_id: int, body: DocUpdate):
         payload["tags"] = tags
 
     if not payload:
-        raise HTTPException(400, "Nichts zu ändern")
+        raise HTTPException(400, _t("Nothing to change"))
     updated = await pl_request("PATCH", f"/api/documents/{doc_id}/", json=payload)
     return normalize(updated, fid, cats)
 
 
-# ---------------------------------------------------------------- Kontoauszüge & Abgleich
+# ---------------------------------------------------------------- Bank statements & reconciliation
 async def patch_doc(doc_id: int, fields: Optional[dict] = None, add_tags=(), remove_tags=()) -> dict:
-    """Dokument ändern und dabei alle übrigen Custom Fields und Tags erhalten.
-    fields: {field_id: wert}; wert None entfernt das Feld."""
+    """Modify a document while keeping all other custom fields and tags.
+    fields: {field_id: value}; value None removes the field."""
     doc = await pl_request("GET", f"/api/documents/{doc_id}/")
     payload: dict = {}
     if fields:
@@ -1511,7 +1511,7 @@ async def patch_doc(doc_id: int, fields: Optional[dict] = None, add_tags=(), rem
 
 
 async def ensure_paid_targets() -> tuple[int, int]:
-    """Tag 'bezahlt' und Datumsfeld 'Bezahlt am' in Paperless anlegen, falls sie fehlen."""
+    """Create the tag 'bezahlt' and the date field 'Bezahlt am' in Paperless if they are missing."""
     m = await get_meta()
     created = False
     if not m["paid_tag"]:
@@ -1527,7 +1527,7 @@ async def ensure_paid_targets() -> tuple[int, int]:
 
 def statement_filter(st: dict) -> dict:
     if not st["statement_document_type_ids"] and not st["statement_tag_ids"]:
-        raise HTTPException(409, "Noch nicht festgelegt, welche Dokumente Kontoauszüge sind – unter Einstellungen wählen.")
+        raise HTTPException(409, _t("Not yet defined which documents are bank statements – choose under Settings."))
     p = {"fields": "id,title,created,correspondent", "ordering": "-created"}
     if st["statement_document_type_ids"]:
         p["document_type__id__in"] = ",".join(map(str, st["statement_document_type_ids"]))
@@ -1537,13 +1537,13 @@ def statement_filter(st: dict) -> dict:
 
 
 def rule_matches(keyword: str, hay: str) -> bool:
-    """Stichwort; mehrere Begriffe mit '+' müssen alle vorkommen, z.B. 'Tankomat + 1234'."""
+    """Keyword; several terms joined with '+' must all occur, e.g. 'Tankomat + 1234'."""
     terms = [t.strip().lower() for t in keyword.split("+") if t.strip()]
     return bool(terms) and all(t in hay for t in terms)
 
 
 def apply_rules(con, only_ids: Optional[list[int]] = None) -> int:
-    """Regeln auf offene Belastungen anwenden: Kategorie/ignorieren (falls noch keine Kategorie) und Fahrzeug."""
+    """Apply rules to open debits: category/ignore (if no category yet) and vehicle."""
     rules = [dict(r) for r in con.execute("SELECT * FROM rules ORDER BY length(keyword) DESC")]
     if not rules:
         return 0
@@ -1599,20 +1599,20 @@ async def parse_one(doc_id: int) -> dict:
     with db() as con:
         existing = {r["hash"]: dict(r) for r in con.execute("SELECT * FROM transactions WHERE statement_doc_id = ?", (doc_id,))}
         new_hashes = {b.hash for b in bookings}
-        # nicht mehr gefundene, unbearbeitete Buchungen dieses Auszugs entfernen
+        # remove unedited transactions of this statement that are no longer found
         for h, r in existing.items():
             if h not in new_hashes and r["status"] == "open" and r["category_tag_id"] is None:
                 con.execute("DELETE FROM transactions WHERE id = ?", (r["id"],))
         new_ids = []
         for b in bookings:
-            # Einzelbeleg (Gutschrifts-/Belastungsanzeige) und Kontoauszug zeigen dieselbe Buchung: nur einmal erfassen
+            # single document (credit/debit advice) and bank statement show the same transaction: record only once
             d0 = date.fromisoformat(b.date)
             dup = con.execute(
                 "SELECT id FROM transactions WHERE statement_doc_id != ? AND abs(amount - ?) < 0.005 AND date BETWEEN ? AND ? "
                 "AND (sign_source = 'beleg' OR ? = 'beleg') LIMIT 1",
                 (doc_id, b.amount, (d0 - timedelta(days=4)).isoformat(), (d0 + timedelta(days=4)).isoformat(), b.sign_source)).fetchone()
             if dup and b.hash not in existing:
-                # Text des anderen Belegs ergänzen (z.B. Adresse des Zahlers aus der Gutschriftsanzeige) – für Stichworte
+                # add the text of the other document (e.g. payer's address from the credit advice) – for keywords
                 con.execute("UPDATE transactions SET text = substr(text || ' · ' || ?, 1, 600) WHERE id = ? AND instr(lower(text), lower(?)) = 0",
                             (b.text, dup["id"], b.text))
                 continue
@@ -1645,7 +1645,7 @@ async def parse_statement_doc(doc_id: int):
 @app.post("/api/statements/parse-new")
 async def parse_new_statements():
     statements = await list_statements()
-    # neue Auszüge – und solche ohne Buchungen erneut (z.B. Einzelbelege, die eine ältere Version nicht lesen konnte)
+    # new statements – and those without transactions again (e.g. single documents that an older version could not read)
     results = [await parse_one(s["id"]) for s in statements if not s["parsed_at"] or not s["tx_count"]]
     return {"parsed": len(results), "added": sum(r["added"] for r in results), "results": results}
 
@@ -1704,14 +1704,14 @@ def _tx(tx_id: int) -> dict:
     with db() as con:
         r = con.execute("SELECT * FROM transactions WHERE id = ?", (tx_id,)).fetchone()
     if not r:
-        raise HTTPException(404, "Buchung nicht gefunden")
+        raise HTTPException(404, _t("Transaction not found"))
     return dict(r)
 
 
 async def do_match(tx_id: int, doc_id: int) -> dict:
     tx = _tx(tx_id)
     if tx["amount"] >= 0:
-        raise HTTPException(400, "Nur Belastungen können einer Rechnung zugeordnet werden")
+        raise HTTPException(400, _t("Only debits can be assigned to an invoice"))
     tag_id, field_id = await ensure_paid_targets()
     doc = await patch_doc(doc_id, fields={field_id: tx["date"]}, add_tags=[tag_id])
     with db() as con:
@@ -1751,7 +1751,7 @@ async def unmatch_tx(tx_id: int):
 
 @app.post("/api/transactions/match-unique")
 async def match_unique(month: str):
-    """Alle eindeutigen Vorschläge des Monats bestätigen."""
+    """Confirm all unambiguous suggestions of the month."""
     used, done = set(), []
     for t in await _transactions(month):
         if not t["unique"]:
@@ -1789,7 +1789,7 @@ def update_tx(tx_id: int, body: TxUpdate):
 
 @app.get("/api/open-invoices")
 async def open_invoices(days: int = 120, grace: int = 10):
-    """Rechnungen mit Betrag, die (noch) keiner Zahlung zugeordnet sind."""
+    """Invoices with an amount that are not (yet) assigned to a payment."""
     meta = await get_meta()
     st = get_settings()
     today = date.today()
@@ -1804,7 +1804,7 @@ async def open_invoices(days: int = 120, grace: int = 10):
     ]
 
 
-# ---------------------------------------------------------------- Regeln (Händler -> Kategorie)
+# ---------------------------------------------------------------- Rules (merchant -> category)
 class RuleIn(BaseModel):
     keyword: str
     category_tag_id: Optional[int] = None
@@ -1822,9 +1822,9 @@ def list_rules():
 def add_rule(body: RuleIn):
     kw = body.keyword.strip()
     if len(kw) < 3:
-        raise HTTPException(400, "Stichwort mit mindestens 3 Zeichen angeben")
+        raise HTTPException(400, _t("Enter a keyword with at least 3 characters"))
     if not body.ignore and body.category_tag_id is None and body.vehicle_id is None:
-        raise HTTPException(400, "Kategorie, Fahrzeug oder 'ignorieren' wählen")
+        raise HTTPException(400, _t("Choose a category, vehicle or 'ignore'"))
     with db() as con:
         cur = con.execute("INSERT INTO rules(keyword, category_tag_id, ignore, vehicle_id) VALUES (?, ?, ?, ?)",
                           (kw, body.category_tag_id, int(body.ignore), body.vehicle_id))
@@ -1848,8 +1848,8 @@ class VehicleIn(BaseModel):
     tag_id: Optional[int] = None
     card_keys: Optional[str] = None
     active: bool = True
-    km_source: Optional[str] = "report"   # report = Traccar-Bericht | gps = aus GPS-Positionen berechnen
-    plates: Optional[str] = None  # Kennzeichen (kommagetrennt) – ordnet Parkvorgänge zu
+    km_source: Optional[str] = "report"   # report = Traccar report | gps = calculate from GPS positions
+    plates: Optional[str] = None  # licence plates (comma-separated) – assigns parking sessions
 
 
 def list_vehicles_db(active_only: bool = False) -> list[dict]:
@@ -1884,7 +1884,7 @@ def update_vehicle(vid: int, body: VehicleIn):
         )
         row = con.execute("SELECT * FROM vehicles WHERE id = ?", (vid,)).fetchone()
     if not row:
-        raise HTTPException(404, "Fahrzeug nicht gefunden")
+        raise HTTPException(404, _t("Vehicle not found"))
     return dict(row)
 
 
@@ -1906,7 +1906,7 @@ _tc: Optional[httpx.AsyncClient] = None
 def traccar_client() -> httpx.AsyncClient:
     global _tc
     if not TRACCAR_URL:
-        raise HTTPException(409, "Traccar ist nicht konfiguriert (TRACCAR_URL in .env).")
+        raise HTTPException(409, _t("Traccar is not configured (TRACCAR_URL in .env)."))
     if _tc is None:
         headers = {"Accept": "application/json"}
         auth = None
@@ -1922,11 +1922,11 @@ async def tc_get(path: str, params: Optional[dict] = None):
     try:
         r = await traccar_client().get(path, params=params)
     except httpx.HTTPError as e:
-        raise HTTPException(502, f"Traccar nicht erreichbar ({TRACCAR_URL}): {e}")
+        raise HTTPException(502, _t("Traccar not reachable ({url}): {err}", url=TRACCAR_URL, err=e))
     if r.status_code in (401, 403):
-        raise HTTPException(502, "Traccar lehnt die Anmeldung ab (TRACCAR_TOKEN bzw. TRACCAR_USER/PASSWORD prüfen).")
+        raise HTTPException(502, _t("Traccar rejects the login (check TRACCAR_TOKEN or TRACCAR_USER/PASSWORD)."))
     if r.status_code >= 400:
-        raise HTTPException(502, f"Traccar-Fehler {r.status_code}: {r.text[:300]}")
+        raise HTTPException(502, _t("Traccar error {status}: {text}", status=r.status_code, text=r.text[:300]))
     return r.json()
 
 
@@ -1938,8 +1938,8 @@ async def traccar_devices():
 
 
 async def traccar_month_km(device_id: int, month: str) -> float:
-    """Gefahrene km eines Geräts in einem Monat.
-    Abgeschlossene Monate werden zwischengespeichert – 0 km aber nur 12 h (könnte ein Abruf ohne Daten gewesen sein)."""
+    """Kilometres driven by a device in a month.
+    Completed months are cached – but 0 km only for 12 h (could have been a retrieval without data)."""
     start, end = month_range(month)
     today = date.today()
     if start > today:
@@ -1964,7 +1964,7 @@ async def traccar_month_km(device_id: int, month: str) -> float:
     return km
 
 
-# --- km aus GPS-Positionen (für Tracker mit fehlerhaftem Kilometerstand)
+# --- km from GPS positions (for trackers with a faulty odometer)
 GPS_JOBS: dict[int, dict] = {}   # device_id -> {"total", "done", "running", "error"}
 
 
@@ -1976,12 +1976,12 @@ def _haversine(lat1, lon1, lat2, lon2) -> float:
 
 
 def km_from_positions(positions: list[dict]) -> float:
-    """Strecke aus Positionen: nur gültige GPS-Fixes, ohne Ausreisser, Sprünge (> 250 km/h),
-    lange Lücken mit grossem Versatz (> 30 min und > 20 km) und ohne Stillstands-Rauschen."""
+    """Distance from positions: only valid GPS fixes, without outliers, jumps (> 250 km/h),
+    long gaps with a large offset (> 30 min and > 20 km) and without standstill noise."""
     pts = sorted((p for p in positions if p.get("valid") and p.get("latitude") is not None),
                  key=lambda p: p.get("fixTime") or p.get("deviceTime") or "")
     dist = lambda a, b: _haversine(a["latitude"], a["longitude"], b["latitude"], b["longitude"])
-    # einzelne Ausreisser entfernen: weit weg von beiden Nachbarn, die selbst nahe beieinander liegen
+    # remove individual outliers: far from both neighbours, which are themselves close to each other
     clean = []
     for i, p in enumerate(pts):
         if 0 < i < len(pts) - 1:
@@ -2004,7 +2004,7 @@ def km_from_positions(positions: list[dict]) -> float:
             if dt > 0 and d / dt * 3600 > 250:
                 continue                    # Sprung / Fehlpositionierung – Punkt verwerfen
             if dt > 1800 and d > 20:
-                prev = p                    # lange Lücke mit grossem Versatz: Strecke unbekannt, nicht schätzen
+                prev = p                    # long gap with a large offset: distance unknown, don't estimate
                 continue
             if not (standing and d < 0.05):
                 total += d
@@ -2012,19 +2012,19 @@ def km_from_positions(positions: list[dict]) -> float:
     return round(total, 2)
 
 
-GPS_DAY_FAILS: dict = {}   # (Gerät, Tag) -> Anzahl Läufe, in denen der ganze Tag nicht geladen werden konnte
+GPS_DAY_FAILS: dict = {}   # (device, day) -> number of runs in which the whole day could not be loaded
 
 
 async def _tc_positions(device_id: int, t0: datetime, t1: datetime) -> Optional[list]:
-    """Positionen eines Zeitfensters; None, wenn Traccar das Fenster mit einem Fehler beantwortet."""
+    """Positions of a time window; None if Traccar answers the window with an error."""
     import asyncio
     params = {"deviceId": device_id, "from": t0.strftime("%Y-%m-%dT%H:%M:%SZ"), "to": t1.strftime("%Y-%m-%dT%H:%M:%SZ")}
-    # Routenbericht ist der offizielle Weg für historische Positionen; /api/positions mit Zeitraum als Ausweichweg
+    # route report is the official way for historical positions; /api/positions with a time range as fallback
     for path in ("/api/reports/route", "/api/positions"):
         try:
             r = await traccar_client().get(path, params=params, headers={"Accept": "application/json"}, timeout=180)
         except httpx.HTTPError as e:
-            raise HTTPException(502, f"Traccar nicht erreichbar ({type(e).__name__})")
+            raise HTTPException(502, _t("Traccar not reachable ({err})", err=type(e).__name__))
         if r.status_code < 400:
             return await asyncio.to_thread(json.loads, r.content)   # im Thread: App bleibt bedienbar
         if r.status_code in (401, 403):
@@ -2040,7 +2040,7 @@ async def gps_day_km(device_id: int, day: date, force: bool = False) -> float:
                           (device_id, day.isoformat())).fetchone()
     if row and not force and (day < today or time.time() - row["fetched_at"] < 3600):
         return row["km"]
-    # in 6-Stunden-Stücken laden; scheitert ein Stück, stundenweise – fehlerhafte Stunden werden als Lücke gezählt
+    # load in 6-hour chunks; if a chunk fails, hour by hour – faulty hours are counted as a gap
     km, points, last, failed_hours = 0.0, 0, None, 0
     base = datetime(day.year, day.month, day.day)
     windows = [(base + timedelta(hours=h), 6) for h in range(0, 24, 6)]
@@ -2054,7 +2054,7 @@ async def gps_day_km(device_id: int, day: date, force: bool = False) -> float:
                 failed_hours += 1
             continue
         if last is not None:
-            positions = [last] + positions          # Strecke über die Stückgrenze hinweg mitzählen
+            positions = [last] + positions          # also count the distance across the chunk boundary
         km += await asyncio.to_thread(km_from_positions, positions)
         points += len(positions)
         valid = [p for p in positions if p.get("valid") and p.get("latitude") is not None]
@@ -2063,16 +2063,16 @@ async def gps_day_km(device_id: int, day: date, force: bool = False) -> float:
         key = (device_id, day.isoformat())
         GPS_DAY_FAILS[key] = GPS_DAY_FAILS.get(key, 0) + 1
         if GPS_DAY_FAILS[key] < 2:
-            raise HTTPException(502, f"Traccar liefert für den {day:%d.%m.%Y} einen Fehler (Server-Fehler in Traccar)")
-        # zweimal ganz gescheitert: als Lücke speichern, damit der Monat fertig berechnet werden kann
+            raise HTTPException(502, _t("Traccar returns an error for {day} (server error in Traccar)", day=f"{day:%d.%m.%Y}"))
+        # failed completely twice: store as a gap so that the month can be finished
     with db() as con:
         con.execute("INSERT OR REPLACE INTO traccar_day_km(device_id, day, km, points, fetched_at, failed) VALUES (?, ?, ?, ?, ?, ?)",
                     (device_id, day.isoformat(), round(km, 3), points, time.time(), failed_hours))
     return round(km, 3)
 
 
-GPS_GAPS: dict = {}       # (Gerät, Monat) -> Stunden ohne Daten
-GPS_TASKS: set = set()   # Verweise halten – sonst kann Python laufende Tasks verwerfen
+GPS_GAPS: dict = {}       # (device, month) -> hours without data
+GPS_TASKS: set = set()   # keep references – otherwise Python may discard running tasks
 
 
 async def _gps_backfill(device_id: int, days: list[date]):
@@ -2086,11 +2086,11 @@ async def _gps_backfill(device_id: int, days: list[date]):
                 await gps_day_km(device_id, d)
                 fails = 0
                 job["error"] = None
-            except Exception as e:  # einzelner Tag fehlgeschlagen: weiter, beim nächsten Lauf erneut versuchen
+            except Exception as e:  # single day failed: continue, try again on the next run
                 fails += 1
                 job["failed"] += 1
                 job["error"] = str(getattr(e, "detail", e))
-                if fails >= 3:   # Traccar offenbar nicht erreichbar – abbrechen
+                if fails >= 3:   # Traccar apparently not reachable – abort
                     break
             job["done"] += 1
             job["progress_at"] = time.time()
@@ -2101,7 +2101,7 @@ async def _gps_backfill(device_id: int, days: list[date]):
 
 
 async def gps_month_km(device_id: int, month: str) -> tuple[Optional[float], list[date]]:
-    """(km, fehlende Tage) – fehlende vergangene Tage berechnet der Aufrufer im Hintergrund."""
+    """(km, missing days) – the caller calculates missing past days in the background."""
     start, end = month_range(month)
     today = date.today()
     if start > today:
@@ -2121,7 +2121,7 @@ async def gps_month_km(device_id: int, month: str) -> tuple[Optional[float], lis
 def start_gps_backfill(device_id: int, missing: list[date]) -> dict:
     import asyncio
     job = GPS_JOBS.get(device_id)
-    stale = job and job.get("running") and time.time() - job.get("progress_at", 0) > 15 * 60   # hängt seit 15 min
+    stale = job and job.get("running") and time.time() - job.get("progress_at", 0) > 15 * 60   # stuck for 15 min
     cooling = job and not job.get("running") and job.get("error") and time.time() - job.get("ended_at", 0) < 600
     if missing and not cooling and (not job or not job.get("running") or stale):
         GPS_JOBS[device_id] = {"total": len(missing), "done": 0, "running": True, "error": None, "progress_at": time.time()}
@@ -2140,7 +2140,7 @@ def gps_status():
 def traccar_refresh():
     with db() as con:
         con.execute("DELETE FROM traccar_km")
-        con.execute("DELETE FROM traccar_day_km WHERE failed > 0")   # Tage mit Lücken erneut versuchen
+        con.execute("DELETE FROM traccar_day_km WHERE failed > 0")   # retry days with gaps
     GPS_DAY_FAILS.clear()
     for j in GPS_JOBS.values():
         j["ended_at"] = 0
@@ -2154,7 +2154,7 @@ def is_fuel_doc(doc: dict, st: dict) -> bool:
 
 
 def prune_parsed(kind: str, valid_ids: set) -> int:
-    """Eingelesene Dokumente entfernen, die nicht mehr dazugehören (Korrespondent/Tag korrigiert oder gelöscht)."""
+    """Remove imported documents that no longer belong (correspondent/tag corrected or deleted)."""
     table, entries = {"fuel": ("fuel_docs", "fuel_entries"), "parking": ("parking_docs", "parking_entries"),
                       "payslip": ("payslips", None)}[kind]
     with db() as con:
@@ -2201,8 +2201,8 @@ def vehicle_for_entry(e: dict, vehicles: list[dict]) -> Optional[int]:
 
 
 async def pdf_layout_text(doc_id: int) -> str:
-    """Text des PDFs mit erhaltenem Zeilenlayout (pdftotext -layout). Paperless speichert OCR-Text von Tabellen
-    oft spaltenweise – für Rechnungen mit Tabellen ist das Layout zuverlässiger."""
+    """Text of the PDF with preserved line layout (pdftotext -layout). Paperless stores OCR text of tables
+    often column by column – for invoices with tables the layout is more reliable."""
     import asyncio
     import shutil
     import subprocess
@@ -2429,7 +2429,7 @@ async def vehicle_report(until: Optional[str] = None, months: int = 12):
     meta = await get_meta()
 
     docs = await fetch_expenses(first, end) if meta["amount_field"] and vehicles else []
-    for lister in (fuel_docs, parking_docs):     # entfernt Einträge von Dokumenten, die nicht mehr dazugehören
+    for lister in (fuel_docs, parking_docs):     # removes entries of documents that no longer belong
         try:
             await lister()
         except HTTPException:
@@ -2499,7 +2499,7 @@ async def vehicle_report(until: Optional[str] = None, months: int = 12):
                     all_missing: list[date] = []
                     for k in keys:
                         km_m, miss = await gps_month_km(v["traccar_device_id"], k)
-                        # unvollständige Monate (Tage noch in Berechnung) nicht als km ausweisen, sonst stimmen CHF/km nicht
+                        # don't report incomplete months (days still being calculated) as km, otherwise cost/km is wrong
                         series[k]["km"] = None if miss else km_m
                         series[k]["gps_gap_hours"] = GPS_GAPS.get((v["traccar_device_id"], k), 0)
                         all_missing += miss
@@ -2526,7 +2526,7 @@ async def vehicle_report(until: Optional[str] = None, months: int = 12):
         tot = {f: round(sum(m[f] for m in rows), 2)
                for f in ("fuel_cost", "quantity", "bank_fuel", "fuel_total", "doc_cost", "bank_cost", "parking_cost", "cost")}
         tot["parking_count"] = sum(m["parking_count"] for m in rows)
-        # Verbrauch nur aus Monaten, in denen alle Tankvorgänge eine Mengenangabe haben (sonst zu tief)
+        # consumption only from months in which all refuellings have a quantity (otherwise too low)
         full = [m for m in rows if m["quantity"] > 0 and m["km"] and m["bank_fuel"] == 0]
         basis = full or [m for m in rows if m["quantity"] > 0 and m["km"]]
         cons = veh.consumption(sum(m["quantity"] for m in basis), sum(m["km"] for m in basis)) if basis else None
@@ -2573,7 +2573,7 @@ async def login(body: LoginIn, request: Request):
         r = con.execute("SELECT * FROM users WHERE username = ? AND active = 1", (body.username.strip(),)).fetchone()
     if not r or not au.verify_password(body.password, r["password"]):
         await asyncio.sleep(1.0)       # Raten bremsen
-        raise HTTPException(401, "Benutzername oder Passwort falsch")
+        raise HTTPException(401, _t("Wrong username or password"))
     return _new_session(r["id"], request)
 
 
@@ -2593,9 +2593,9 @@ def me():
     u = CURRENT_USER.get()
     full = {a: "edit" for a in au.AREA_KEYS}
     if not users_enabled():
-        return {"users_enabled": False, "user": None, "is_admin": True, "perms": full, "areas": au.AREAS}
+        return {"users_enabled": False, "user": None, "is_admin": True, "perms": full, "areas": [(k, _t(l)) for k, l in au.AREAS]}
     return {"users_enabled": True, "user": {"id": u["id"], "name": u["name"], "username": u["username"]} if u else None,
-            "is_admin": bool(u and u["is_admin"]), "perms": full if u and u["is_admin"] else (u or {}).get("perms", {}), "areas": au.AREAS}
+            "is_admin": bool(u and u["is_admin"]), "perms": full if u and u["is_admin"] else (u or {}).get("perms", {}), "areas": [(k, _t(l)) for k, l in au.AREAS]}
 
 
 class PasswordIn(BaseModel):
@@ -2607,13 +2607,13 @@ class PasswordIn(BaseModel):
 def change_password(body: PasswordIn):
     u = CURRENT_USER.get()
     if not u:
-        raise HTTPException(400, "Benutzerverwaltung ist nicht aktiv")
+        raise HTTPException(400, _t("User management is not active"))
     if len(body.new) < 8:
         raise HTTPException(400, "Das neue Passwort braucht mindestens 8 Zeichen")
     with db() as con:
         r = con.execute("SELECT password FROM users WHERE id = ?", (u["id"],)).fetchone()
         if not au.verify_password(body.old, r["password"]):
-            raise HTTPException(400, "Bisheriges Passwort stimmt nicht")
+            raise HTTPException(400, _t("Current password is incorrect"))
         con.execute("UPDATE users SET password = ? WHERE id = ?", (au.hash_password(body.new), u["id"]))
     return {"ok": True}
 
@@ -2643,10 +2643,10 @@ def list_users():
 
 @app.post("/api/users", status_code=201)
 def add_user(body: UserIn, request: Request):
-    """Ersten Benutzer darf jeder anlegen (wird Administrator und gleich angemeldet), danach nur Administratoren."""
+    """Anyone may create the first user (becomes administrator and is signed in right away), afterwards only administrators."""
     first = not users_enabled()
     if not body.username or not body.username.strip():
-        raise HTTPException(400, "Benutzername angeben")
+        raise HTTPException(400, _t("Enter a username"))
     if not body.password or len(body.password) < 8:
         raise HTTPException(400, "Das Passwort braucht mindestens 8 Zeichen")
     with db() as con:
@@ -2669,7 +2669,7 @@ def update_user(uid: int, body: UserIn):
     data = body.model_dump(exclude_unset=True)
     with db() as con:
         if not con.execute("SELECT 1 FROM users WHERE id = ?", (uid,)).fetchone():
-            raise HTTPException(404, "Benutzer nicht gefunden")
+            raise HTTPException(404, _t("User not found"))
         if (data.get("is_admin") is False or data.get("active") is False) and _admins_left(con, uid) == 0:
             raise HTTPException(400, "Es muss mindestens ein aktiver Administrator bleiben")
         sets, vals = [], []
@@ -2702,7 +2702,7 @@ def update_user(uid: int, body: UserIn):
 def delete_user(uid: int):
     with db() as con:
         if _admins_left(con, uid) == 0:
-            raise HTTPException(400, "Der letzte Administrator kann nicht gelöscht werden")
+            raise HTTPException(400, _t("The last administrator cannot be deleted"))
         con.execute("DELETE FROM sessions WHERE user_id = ?", (uid,))
         con.execute("DELETE FROM users WHERE id = ?", (uid,))
     _users_cache["t"] = 0
@@ -2712,7 +2712,7 @@ def delete_user(uid: int):
 # ---------------------------------------------------------------- Einstellungen: Status, Backup, Export
 @app.get("/api/status")
 async def status():
-    """Zustand der Verbindungen und der Dinge, die die App in Paperless erwartet."""
+    """State of the connections and of the things the app expects in Paperless."""
     st = get_settings()
     out: dict = {"version": APP_VERSION, "paperless": {"url": PAPERLESS_PUBLIC_URL, "ok": False, "error": None, "checks": []},
                  "traccar": {"configured": bool(TRACCAR_URL), "url": TRACCAR_URL, "ok": False, "error": None, "devices": []}}
@@ -2720,11 +2720,11 @@ async def status():
         m = await get_meta(force=True)
         out["paperless"]["ok"] = True
         out["paperless"]["checks"] = [
-            {"key": "amount_field_name", "label": f"Betragsfeld „{st['amount_field_name']}“ (Währung)", "ok": bool(m["amount_field"]),
+            {"key": "amount_field_name", "label": _t("Amount field “{name}” (currency)", name=st['amount_field_name']), "ok": bool(m["amount_field"]),
              "create": "amount-field"},
-            {"key": "paid_tag_name", "label": f"Tag „{st['paid_tag_name']}“", "ok": bool(m["paid_tag"]), "create": "tag"},
-            {"key": "paid_field_name", "label": f"Datumsfeld „{st['paid_field_name']}“", "ok": bool(m["paid_field"]), "create": "date-field"},
-            {"key": "order_tag_name", "label": f"Tag „{st['order_tag_name']}“ (Bestellungen)", "ok": bool(m["order_tag"]), "create": "tag"},
+            {"key": "paid_tag_name", "label": _t("Tag “{name}”", name=st['paid_tag_name']), "ok": bool(m["paid_tag"]), "create": "tag"},
+            {"key": "paid_field_name", "label": _t("Date field “{name}”", name=st['paid_field_name']), "ok": bool(m["paid_field"]), "create": "date-field"},
+            {"key": "order_tag_name", "label": _t("Tag “{name}” (orders)", name=st['order_tag_name']), "ok": bool(m["order_tag"]), "create": "tag"},
         ]
         if m["amount_field"]:
             r = await pl_request("GET", "/api/documents/", params={"custom_fields__id__all": m["amount_field"]["id"], "page_size": 1,
@@ -2761,7 +2761,7 @@ class CreateIn(BaseModel):
 async def setup_create(body: CreateIn):
     name = body.name.strip()
     if not name:
-        raise HTTPException(400, "Name fehlt")
+        raise HTTPException(400, _t("Name is missing"))
     if body.kind == "tag":
         await pl_request("POST", "/api/tags/", json={"name": name, "matching_algorithm": 0})
     elif body.kind == "amount-field":
@@ -2776,7 +2776,7 @@ async def setup_create(body: CreateIn):
 
 @app.get("/api/backup")
 def backup():
-    """Konsistente Kopie der Datenbank herunterladen."""
+    """Download a consistent copy of the database."""
     import tempfile
     tmp = Path(tempfile.mkstemp(suffix=".db")[1])
     with db() as con:
@@ -2793,18 +2793,18 @@ def backup():
 
 @app.post("/api/restore")
 async def restore(request: Request):
-    """Backup einspielen. Die aktuelle Datenbank wird vorher daneben gesichert (budget.db.vor-wiederherstellung-…)."""
+    """Restore a backup. The current database is saved next to it first (budget.db.vor-wiederherstellung-…)."""
     import tempfile
     data = await request.body()
     if not data.startswith(b"SQLite format 3"):
-        raise HTTPException(400, "Das ist keine Backup-Datei dieser App.")
+        raise HTTPException(400, _t("This is not a backup file of this app."))
     tmp = Path(tempfile.mkstemp(suffix=".db")[1])
     tmp.write_bytes(data)
     try:
         src = sqlite3.connect(tmp)
         tables = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"settings", "transactions", "budgets"} <= tables:
-            raise HTTPException(400, "Die Datei enthält keine Daten dieser App.")
+            raise HTTPException(400, _t("The file contains no data of this app."))
         safety = Path(DB_PATH).with_name(f"{Path(DB_PATH).name}.vor-wiederherstellung-{datetime.now():%Y%m%d-%H%M%S}")
         with db() as con:
             keep = sqlite3.connect(safety)
@@ -2842,8 +2842,8 @@ async def export(kind: str, year: Optional[int] = None):
         with db() as con:
             rows = [dict(r) for r in con.execute("SELECT * FROM transactions WHERE date >= ? AND date < ? ORDER BY date",
                                                  (start.isoformat(), end.isoformat()))]
-        return _csv(rows, [("date", "Datum"), ("merchant", "Händler"), ("text", "Buchungstext"), ("amount", "Betrag"),
-                           ("status", "Status"), ("matched_title", "Rechnung")], f"buchungen-{year}.csv")
+        return _csv(rows, [("date", _t("Date")), ("merchant", _t("Merchant")), ("text", _t("Booking text")), ("amount", _t("Amount")),
+                           ("status", _t("Status")), ("matched_title", _t("Invoice"))], f"buchungen-{year}.csv")
     if kind == "ausgaben":
         meta = await get_meta()
         tags = {t["id"]: t["name"] for t in meta["tags"]}
@@ -2852,19 +2852,19 @@ async def export(kind: str, year: Optional[int] = None):
         await attach_purposes(docs)
         cats = get_settings()["category_tag_ids"]
         items = [{"date": d["date"], "title": d["title"], "purpose": d.get("purpose"), "corr": corr.get(d["correspondent"]),
-                  "category": tags.get(d["category"]), "amount": d["amount"], "source": "Beleg"} for d in docs]
+                  "category": tags.get(d["category"]), "amount": d["amount"], "source": _t("Receipt")} for d in docs]
         items += [{"date": b["date"], "title": b["title"], "category": tags.get(b["category"]), "amount": b["amount"], "source": "Bank"}
                   for b in bank_expenses(start, end, cats)]
-        return _csv(sorted(items, key=lambda x: x["date"]), [("date", "Datum"), ("title", "Titel"), ("purpose", "Zweck"),
-                    ("corr", "Korrespondent"), ("category", "Kategorie"), ("amount", "Betrag"), ("source", "Quelle")],
+        return _csv(sorted(items, key=lambda x: x["date"]), [("date", _t("Date")), ("title", _t("Title")), ("purpose", _t("Purpose")),
+                    ("corr", _t("Correspondent")), ("category", _t("Category")), ("amount", _t("Amount")), ("source", _t("Source"))],
                     f"ausgaben-{year}.csv")
     if kind == "vertraege":
         from .contracts_api import contracts_overview
         rows = contracts_overview()["items"]
-        return _csv(rows, [("kind", "Art"), ("name", "Name"), ("category", "Kategorie"), ("provider", "Anbieter"),
-                           ("contract_no", "Nummer"), ("per_interval", "Betrag"), ("interval", "Intervall"), ("monthly", "pro Monat"),
-                           ("yearly", "pro Jahr"), ("start", "Beginn"), ("term_end", "Laufzeit bis"), ("notice_by", "Kündigen bis"),
-                           ("balance", "Restschuld")], "vertraege.csv")
+        return _csv(rows, [("kind", _t("Type")), ("name", _t("Name")), ("category", _t("Category")), ("provider", _t("Provider")),
+                           ("contract_no", _t("Number")), ("per_interval", _t("Amount")), ("interval", _t("Interval")), ("monthly", _t("per month")),
+                           ("yearly", _t("per year")), ("start", _t("Start")), ("term_end", _t("Term until")), ("notice_by", _t("Cancel by")),
+                           ("balance", _t("Outstanding balance"))], "vertraege.csv")
     raise HTTPException(404)
 
 
@@ -2887,18 +2887,18 @@ app.include_router(meters_api.router)
 app.add_event_handler("startup", meters_api.start_poller)
 
 # ---------------------------------------------------------------- Frontend
-# Cache-Busting: Skripte/Styles mit ?v=<Prüfsumme> einbinden, HTML nie zwischenspeichern – sonst liefert ein
-# Reverse-Proxy mit Asset-Cache (z.B. Nginx Proxy Manager „Cache Assets“) nach einem Update alte Dateien aus.
+# Cache busting: include scripts/styles with ?v=<checksum>, never cache HTML – otherwise a
+# reverse proxy with asset cache (e.g. Nginx Proxy Manager "Cache Assets") serves old files after an update.
 def _asset_version() -> str:
     h = hashlib.sha1(APP_VERSION.encode())
-    for f in sorted(STATIC_DIR.glob("*")):
+    for f in sorted(STATIC_DIR.rglob("*")):
         if f.suffix in (".js", ".css", ".html"):
-            h.update(f.name.encode()); h.update(f.read_bytes())
+            h.update(f.relative_to(STATIC_DIR).as_posix().encode()); h.update(f.read_bytes())
     return h.hexdigest()[:10]
 
 
 ASSET_V = _asset_version()
-_ASSET_RE = re.compile(r'((?:src|href)=")([\w.-]+\.(?:js|css))(")')
+_ASSET_RE = re.compile(r'((?:src|href)=")([\w./-]+\.(?:js|css))(")')
 NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
 
 
@@ -2919,11 +2919,19 @@ def login_page():
 
 
 @app.middleware("http")
+async def language(request: Request, call_next):
+    """Request language for translated API messages (X-Lang header, lang cookie, Accept-Language). Registered after
+    the auth middleware, so it runs first and the auth error messages are translated too."""
+    set_lang(pick_lang(request.headers.get("x-lang"), request.cookies.get("lang"), request.headers.get("accept-language")))
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def static_cache_headers(request: Request, call_next):
     resp = await call_next(request)
     path = request.url.path
     if path.endswith((".js", ".css")):
-        # versionierte Dateien dürfen lange im Cache bleiben, unversionierte immer neu prüfen
+        # versioned files may stay in the cache for a long time, unversioned ones are always revalidated
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable" if request.query_params.get("v") else "no-cache"
     elif path.endswith(".webmanifest") or path.endswith(".html"):
         resp.headers.update(NO_CACHE)
