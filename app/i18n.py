@@ -104,6 +104,16 @@ DE = {
     "not enough readings for a projection": "zu wenig Ablesungen für eine Hochrechnung",
     "Meter": "Zähler",
     "Receipt": "Beleg",
+    "Open Banking is not configured – see Settings → Bank & reconciliation.": "Open Banking ist nicht eingerichtet – siehe Einstellungen → Bank & Abgleich.",
+    "Choose a bank": "Bank wählen",
+    "Unknown or expired authorisation – connect the bank again.": "Unbekannte oder abgelaufene Autorisierung – Bank erneut verbinden.",
+    "The URL must contain code and state.": "Die URL muss code und state enthalten.",
+    "Account not found": "Konto nicht gefunden",
+    "The consent for this bank has expired – connect it again.": "Die Zustimmung für diese Bank ist abgelaufen – erneut verbinden.",
+    "The bank limits background access; try again after {time}.": "Die Bank begrenzt den Hintergrundzugriff; erneut versuchen ab {time}.",
+    "Invalid date": "Ungültiges Datum",
+    "Connection not found": "Verbindung nicht gefunden",
+    "Transfer between own accounts": "Umbuchung zwischen eigenen Konten",
     "Salary": "Lohn",
     "Payslip (income)": "Lohnabrechnung (Einnahme)",
     "Upload to Paperless failed ({err}).": "Upload zu Paperless fehlgeschlagen ({err}).",
@@ -143,7 +153,7 @@ def pick_lang(x_lang: str | None, cookie: str | None, accept: str | None) -> str
     return DEFAULT_LANG
 
 
-def _t(text: str, **params) -> str:
+def _t(text: str, /, **params) -> str:
     """Translate ``text`` (English source) into the request language and fill in ``{name}`` placeholders."""
     s = DE.get(text, text) if _lang.get() == "de" else text
     return s.format(**params) if params else s

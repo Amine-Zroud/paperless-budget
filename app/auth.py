@@ -65,7 +65,7 @@ RULES: list[tuple[str, object]] = [
     (r"^/api/documents/", "budget"),
     (r"^/api/doc-search$", ("any", ["budget", "realestate", "projects"])),
     (r"^/api/allocations(/|$)", ("any", ["realestate", "projects", "budget"])),
-    (r"^/api/(transactions|statements|rules|open-invoices)(/|$)", "bank"),
+    (r"^/api/(transactions|statements|rules|open-invoices|openbanking)(/|$)", "bank"),
     (r"^/api/(vehicles|fuel-docs|fuel-entries|parking-docs|parking-entries|traccar)(/|$)", "vehicles"),
     (r"^/api/(projects-overview|projects)(/|$)", "projects"),
     (r"^/api/(contracts-overview|contracts|contract-payments|abo-suggestions)(/|$)", "contracts"),

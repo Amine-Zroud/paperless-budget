@@ -563,7 +563,7 @@ $("#seInput").oninput = () => {
       const already = (d.allocations || []).some((a) => a.target_type === seTarget.type && a.target_id === seTarget.id);
       return `<div class="invitem" data-i="${i}"><span><span class="srcb ${d.kind === "doc" ? "Beleg" : "Bank"}">${d.kind === "doc" ? __("Receipt") : "Bank"}</span>
         ${fmtDate(d.date)} · <b>${esc(d.purpose && d.kind === "doc" ? d.purpose : d.title)}</b> <span class="muted small">${esc(d.kind === "doc" ? d.title : "")}</span></span>
-        <span class="row"><b class="num">${fmt(d.amount || 0)}</b>${already ? `<span class="muted small">${__("✓ assigned")}</span>` : `<button class="se-add">ganz</button><button class="se-part">${__("Part …")}</button>`}</span></div>`;
+        <span class="row"><b class="num">${fmt(d.amount || 0)}</b>${already ? `<span class="muted small">${__("✓ assigned")}</span>` : `<button class="se-add">${__("in full")}</button><button class="se-part">${__("Part …")}</button>`}</span></div>`;
     }).join("") : `<div class="empty">${__("Nothing found.")}</div>`;
     $("#seResults").onclick = async (e) => {
       const row = e.target.closest("[data-i]"); if (!row) return;

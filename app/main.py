@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth as au, bank, parking as pk, payslip as pay, payslip_be, purpose as purp, vehicles as veh
+from . import auth as au, bank, bank_beobank, parking as pk, payslip as pay, payslip_be, purpose as purp, vehicles as veh
 from .i18n import _t, pick_lang, set_lang
 
 # ---------------------------------------------------------------- Konfiguration
@@ -198,6 +198,9 @@ def init_db():
                 merchant TEXT
             );
             CREATE INDEX IF NOT EXISTS tx_date ON transactions(date);
+            CREATE TABLE IF NOT EXISTS own_accounts (      -- IBANs of the user's own accounts: transfers between them are not expenses
+                iban TEXT PRIMARY KEY, label TEXT, source TEXT
+            );
             CREATE TABLE IF NOT EXISTS vehicles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -349,7 +352,7 @@ init_db()
 
 def migrate_db():
     """Add columns that are missing in older versions."""
-    wanted = {"transactions": {"card": "TEXT", "vehicle_id": "INTEGER", "merchant": "TEXT"}, "rules": {"vehicle_id": "INTEGER"},
+    wanted = {"transactions": {"card": "TEXT", "vehicle_id": "INTEGER", "merchant": "TEXT", "note": "TEXT", "account_id": "INTEGER"}, "rules": {"vehicle_id": "INTEGER"},
               "vehicles": {"km_source": "TEXT", "plates": "TEXT"}, "parking_entries": {"end_time": "TEXT", "driver": "TEXT"},
               "traccar_day_km": {"failed": "INTEGER"}, "payslips": {"extras": "TEXT"},
               "rent_payments": {"n_months": "INTEGER"}}
@@ -1583,6 +1586,40 @@ def apply_rules(con, only_ids: Optional[list[int]] = None) -> int:
     return n
 
 
+def register_own_account(con, iban: Optional[str], label: str, source: str) -> None:
+    """Remember an IBAN of the user's own accounts (card repayment account, connected bank accounts)."""
+    iban = re.sub(r"\s", "", iban or "").upper()
+    if iban:
+        con.execute("INSERT OR IGNORE INTO own_accounts(iban, label, source) VALUES (?, ?, ?)", (iban, label, source))
+
+
+def mark_internal_transfers(con, only_ids: Optional[list[int]] = None) -> int:
+    """Open transactions whose text names one of the user's own IBANs are transfers between own accounts: ignore them."""
+    ibans = [r["iban"] for r in con.execute("SELECT iban FROM own_accounts")]
+    if not ibans:
+        return 0
+    n = 0
+    for r in con.execute("SELECT id, text FROM transactions WHERE status = 'open'").fetchall():
+        if only_ids is not None and r["id"] not in only_ids:
+            continue
+        flat = re.sub(r"\s", "", r["text"] or "").upper()
+        hit = next((i for i in ibans if i in flat), None)
+        if hit:
+            con.execute("UPDATE transactions SET status = 'ignored', note = ? WHERE id = ?", (_t("Transfer between own accounts"), r["id"]))
+            n += 1
+    return n
+
+
+def post_import(con, new_ids: list[int]) -> None:
+    """Steps after new transactions were stored (PDF statements and bank connections)."""
+    mark_internal_transfers(con, new_ids)
+    apply_rules(con, new_ids)
+    from .re_api import auto_assign_rent
+    from .contracts_api import auto_assign_contracts
+    auto_assign_rent(con)
+    auto_assign_contracts(con)
+
+
 @app.get("/api/statements")
 async def list_statements():
     st = get_settings()
@@ -1604,9 +1641,18 @@ async def list_statements():
 
 async def parse_one(doc_id: int) -> dict:
     doc = await pl_request("GET", f"/api/documents/{doc_id}/")
-    bookings = bank.parse_any(doc.get("content") or "", doc_id)
+    content = doc.get("content") or ""
+    bookings = bank.parse_any(content, doc_id)
+    if bank_beobank.looks_like(content) and (not bookings or any(b.sign_source != "saldo" for b in bookings)):
+        # credit card statement that does not add up in Paperless's text: try the layout text of the original PDF
+        alt = bank.parse_any(await pdf_layout_text(doc_id), doc_id)
+        if alt and sum(b.sign_source == "saldo" for b in alt) > sum(b.sign_source == "saldo" for b in bookings):
+            bookings, content = alt, await pdf_layout_text(doc_id)
     added = 0
     with db() as con:
+        meta = bank_beobank.meta(content) if bank_beobank.looks_like(content) else {}
+        if meta.get("repayment_iban"):   # transfers to this account are card payments from the user's own bank account
+            register_own_account(con, meta["repayment_iban"], f"Beobank VISA ••{(meta.get('card') or '')[-4:]}", "beobank-statement")
         existing = {r["hash"]: dict(r) for r in con.execute("SELECT * FROM transactions WHERE statement_doc_id = ?", (doc_id,))}
         new_hashes = {b.hash for b in bookings}
         # remove unedited transactions of this statement that are no longer found
@@ -1627,18 +1673,15 @@ async def parse_one(doc_id: int) -> dict:
                             (b.text, dup["id"], b.text))
                 continue
             cur = con.execute(
-                "INSERT OR IGNORE INTO transactions(statement_doc_id, hash, date, text, amount, sign_source, merchant, card) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (doc_id, b.hash, b.date, b.text, b.amount, b.sign_source, b.merchant, b.card),
+                "INSERT OR IGNORE INTO transactions(statement_doc_id, hash, date, text, amount, sign_source, merchant, card, status, note) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (doc_id, b.hash, b.date, b.text, b.amount, b.sign_source, b.merchant, b.card,
+                 "ignored" if b.internal else "open", _t("Transfer between own accounts") if b.internal else None),
             )
             if cur.rowcount:
                 added += 1
                 new_ids.append(cur.lastrowid)
-        apply_rules(con, new_ids)
-        from .re_api import auto_assign_rent
-        from .contracts_api import auto_assign_contracts
-        auto_assign_rent(con)
-        auto_assign_contracts(con)
+        post_import(con, new_ids)
         con.execute(
             "INSERT OR REPLACE INTO statements(doc_id, title, parsed_at, tx_count) VALUES (?, ?, ?, ?)",
             (doc_id, doc.get("title"), datetime.now().isoformat(timespec="seconds"), len(bookings)),
@@ -1701,7 +1744,7 @@ async def _transactions(month: str) -> list[dict]:
             ]
             t["unique"] = bool(c) and bank.is_unique(c)
         t["matched_url"] = f"{PAPERLESS_PUBLIC_URL}/documents/{t['matched_doc_id']}/details" if t["matched_doc_id"] else None
-        t["statement_url"] = f"{PAPERLESS_PUBLIC_URL}/documents/{t['statement_doc_id']}/details"
+        t["statement_url"] = f"{PAPERLESS_PUBLIC_URL}/documents/{t['statement_doc_id']}/details" if t["statement_doc_id"] > 0 else None
     return rows
 
 
@@ -2895,6 +2938,9 @@ app.include_router(planning_router)
 from . import meters_api  # noqa: E402
 app.include_router(meters_api.router)
 app.add_event_handler("startup", meters_api.start_poller)
+from . import bank_api  # noqa: E402
+app.include_router(bank_api.router)
+app.add_event_handler("startup", bank_api.start_poller)
 
 # ---------------------------------------------------------------- Frontend
 # Cache busting: include scripts/styles with ?v=<checksum>, never cache HTML – otherwise a

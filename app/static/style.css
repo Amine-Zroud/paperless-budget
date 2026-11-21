@@ -362,3 +362,9 @@ table.users select, table.users input:not([type=checkbox]) { min-width: 90px; }
 
 /* language switcher */
 select.lang-switch { width: auto; padding: 2px 6px; font-size: 12px; }
+
+/* bank connections */
+.ob-conn { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+.ob-conn .etable td, .ob-conn .etable th { padding: 4px 6px; }
+.ob-conn input[type="date"] { width: 9.5em; }
+#obBank { min-width: 14em; max-width: 100%; }

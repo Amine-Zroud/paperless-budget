@@ -520,7 +520,7 @@ async function drawIncomeRules() {
   $("#irCredits").innerHTML = credits.length ? credits.map((t) => `<div class="invitem"><span>${fmtDate(t.date)} · <b>${esc(t.merchant || t.text.slice(0, 50))}</b>
       <span class="muted small">${esc(t.text.slice(0, 70))}</span></span>
       <span class="row"><b class="num">${fmt(t.amount)}</b>${t.rule ? `<span class="pill">💰 ${esc(t.rule)}</span>` : t.rent ? `<span class="pill grey">${__("Rent")}</span>`
-        : t.status === "ignored" ? `<span class="pill grey">ignoriert</span>` : `<button class="linkbtn" data-irnew="${esc(t.merchant || t.text.split(" · ")[0] || "")}" data-amt="${t.amount}" data-day="${Number(t.date.slice(8))}">${__("detect as income")}</button>`}</span></div>`).join("")
+        : t.status === "ignored" ? `<span class="pill grey">${esc(t.note || __("ignored"))}</span>` : `<button class="linkbtn" data-irnew="${esc(t.merchant || t.text.split(" · ")[0] || "")}" data-amt="${t.amount}" data-day="${Number(t.date.slice(8))}">${__("detect as income")}</button>`}</span></div>`).join("")
     : `<div class="muted small">${__("No credits in {month} – import bank statements under", {month: esc(monthLabel(S.month))})} <a href="#" data-goto="bank">${__("Reconcile")}</a>.</div>`;
 }
 async function saveIncomeRule(tr) {
@@ -585,21 +585,59 @@ $("#incBody").addEventListener("click", async (e) => {
 let txs = [];
 const hasStatementFilter = () => (S.settings.statement_document_type_ids || []).length || (S.settings.statement_tag_ids || []).length;
 
+let bkRules = [];
 async function renderBank() {
-  const ready = hasStatementFilter() && S.meta.amount_field;
+  const ob = await api("/api/openbanking/status").catch(() => null);
+  S.ob = ob;
+  const hasBank = !!(ob && ob.connections.length);
+  const ready = (hasStatementFilter() || hasBank) && S.meta.amount_field;
   $("#bankSetup").hidden = !!ready;
-  if (!ready) { $("#bkList").innerHTML = ""; return; }
+  if (!ready) { $("#bkList").innerHTML = ""; $("#obBar").hidden = true; return; }
   const [list, statements, rules, openInv] = await Promise.all([
-    api(`/api/transactions?month=${S.month}`), api("/api/statements"), api("/api/rules"), api("/api/open-invoices").catch(() => []),
+    api(`/api/transactions?month=${S.month}`), hasStatementFilter() ? api("/api/statements") : [], api("/api/rules"), api("/api/open-invoices").catch(() => []),
   ]);
-  txs = list;
+  txs = list; bkRules = rules;
+  drawObBar(ob);
   drawTx(); drawStatements(statements); drawOpenInvoices(openInv);
   $("#bankRuleSummary").textContent = rules.length ? __("{length} rule(s) active: {join}{length2}", {length: rules.length, join: rules.slice(0, 6).map((r) => r.keyword).join(", "), length2: rules.length > 6 ? " …" : ""}) : __("No rules yet.");
 }
 
 const txKind = (t) => t.status === "ignored" ? "ignored" : t.status === "matched" ? "matched" : t.amount > 0 ? "credit" : t.candidates.length ? "suggest" : "nodoc";
 
+function drawObBar(ob) {
+  const bar = $("#obBar");
+  const conns = (ob?.connections || []);
+  bar.hidden = !conns.length;
+  if (!conns.length) return;
+  const last = conns.flatMap((c) => c.accounts.map((a) => a.last_sync)).filter(Boolean).sort().pop();
+  const warn = conns.filter((c) => c.status === "expired" || (c.days_left != null && c.days_left <= 14));
+  bar.innerHTML = `${__("Bank connections")}: <b>${esc(conns.map((c) => c.bank).join(", "))}</b> · ${last ? __("last sync {when}", {when: relTime(last)}) : __("not synced yet")}
+    <button id="obBarSync" class="linkbtn">${__("Sync now")}</button>` + warn.map((c) => `<div class="neg small">${esc(c.bank)}: ${c.status === "expired" ? __("consent expired") : __("consent expires in {n} days", {n: c.days_left})} – <a href="#" data-gosettings="bank">${__("reconnect")}</a></div>`).join("");
+}
+$("#obBar").onclick = async (e) => {
+  if (e.target.id !== "obBarSync") return;
+  e.target.disabled = true;
+  try { const r = await api("/api/openbanking/sync", { method: "POST", body: "{}" }); toast(__("{added} new transactions", {added: r.added})); await renderBank(); }
+  catch (err) { toast(err.message, true); e.target.disabled = false; }
+};
+
+// card top-ups to Revolut (“Revolut**1234*”) are transfers between the user's own accounts: offer a rule
+function drawBankHint() {
+  const hint = $("#bkHint");
+  const topups = txs.filter((t) => t.status === "open" && t.amount < 0 && /^revolut\*\*/i.test(t.merchant || t.text || ""));
+  const show = topups.length && !bkRules.some((r) => /revolut\*\*/i.test(r.keyword));
+  hint.hidden = !show;
+  hint.innerHTML = show ? `${__("{n} card top-up to Revolut (“Revolut**…”) looks like a transfer between your own accounts.|{n} card top-ups to Revolut (“Revolut**…”) look like transfers between your own accounts.", {n: topups.length})}
+    <button id="bkHintRevolut" class="linkbtn">${__("Ignore them from now on")}</button>` : "";
+}
+$("#bkHint").onclick = async (e) => {
+  if (e.target.id !== "bkHintRevolut") return;
+  try { await api("/api/rules", { method: "POST", body: JSON.stringify({ keyword: "revolut**", ignore: true }) }); toast(__("Saved")); await renderBank(); }
+  catch (err) { toast(err.message, true); }
+};
+
 function drawTx() {
+  drawBankHint();
   const f = $("#bkFilter").value;
   const kinds = txs.map(txKind);
   const cnt = (k) => kinds.filter((x) => x === k).length;
@@ -634,7 +672,7 @@ function txRow(t) {
     act = `<span class="pill">✓ <a href="${esc(t.matched_url)}" target="_blank" rel="noopener">${esc(t.matched_title || __("Invoice"))}</a></span>
       <button class="linkbtn" data-act="unmatch">${__("unmatch")}</button>`;
   } else if (k === "ignored") {
-    act = `<span class="pill grey">ignoriert</span><button class="linkbtn" data-act="unignore">${__("restore")}</button>`;
+    act = `<span class="pill grey"${t.note ? ` title="${esc(t.note)}"` : ""}>${esc(t.note || __("ignored"))}</span><button class="linkbtn" data-act="unignore">${__("restore")}</button>`;
   } else if (k === "credit") {
     act = `<span class="pill grey">${t.rent ? __("Rent payment") : t.income ? "💰 " + esc(t.income) : __("Credit")}</span><button class="linkbtn" data-act="ignore">${__("ignore")}</button><button class="linkbtn" data-act="flip">${__("± sign")}</button>`;
   } else {
@@ -647,7 +685,7 @@ function txRow(t) {
       ${S.vehicles.length ? `<select class="txveh" title="${__("Vehicle (counts towards its costs)")}">${vehicleOptions(t.vehicle_id)}</select>` : ""}
       <button class="linkbtn" data-act="alloc" title="${__("Assign building / project")}">${__("↗ assign")}</button>
       <button class="linkbtn" data-act="rule" title="${__("Create a rule for this merchant")}">${__("Rule")}</button>
-      <button class="linkbtn" data-act="ignore" title="${__("e.g. transfer to savings account")}">ignorieren</button>
+      <button class="linkbtn" data-act="ignore" title="${__("e.g. transfer to savings account")}">${__("ignore")}</button>
       <button class="linkbtn" data-act="flip">±</button>`;
   }
   return `<div class="tx ${k}" data-id="${t.id}">
@@ -984,6 +1022,12 @@ $("#fuelForm").onsubmit = async (e) => {
 // --- Verwaltung (Einstellungen)
 // ------------------------------------------------------------ Start
 (async function init() {
+  const bankResult = new URLSearchParams(location.search).get("bank");      // redirect back from the bank's approval page
+  if (bankResult) {
+    S.view = "settings";
+    try { localStorage.setItem("setPanel", "bank"); } catch {}
+    history.replaceState(null, "", location.pathname);
+  }
   $("#monthLabel").textContent = monthLabel(S.month);
   try { S.me = await api("/api/me"); } catch { S.me = null; }
   applyPermissions();
@@ -994,4 +1038,5 @@ $("#fuelForm").onsubmit = async (e) => {
     [S.meta, S.settings, S.budgets, S.vehicles] = await Promise.all([api("/api/meta"), api("/api/settings"), api("/api/budgets"), api("/api/vehicles")]);
   } catch (e) { showAlert((__("Connection to Paperless failed:") + " ") + e.message); return; }
   render();
+  if (bankResult) toast(bankResult === "connected" ? __("Bank connected – the history is being imported") : __("Bank connection failed"), bankResult !== "connected");
 })();

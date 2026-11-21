@@ -68,6 +68,7 @@ class Booking:
     merchant: str = ""   # merchant / recipient / payer (for category rules)
     card: str = ""       # last 4 digits of the card, if given
     hash: str = ""
+    internal: bool = False   # transfer between the user's own accounts (e.g. payment of a credit card balance)
 
 
 @dataclass
@@ -316,8 +317,9 @@ def parse_advice(content: str) -> list[Booking]:
 
 
 def parse_any(content: str, doc_id: int = 0) -> list[Booking]:
-    """Bank statement – or, if no transactions are found, single document."""
-    return parse_statement(content, doc_id) or parse_advice(content)
+    """Bank statement – or, if no transactions are found, single document. Beobank credit card statements first."""
+    from . import bank_beobank          # late import: bank_beobank needs the Booking class above
+    return bank_beobank.parse(content, doc_id) or parse_statement(content, doc_id) or parse_advice(content)
 
 
 # ---------------------------------------------------------------- Abgleich

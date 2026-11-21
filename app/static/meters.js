@@ -36,7 +36,7 @@ function meterCard(m) {
     ${m.last_error && m.active ? `<div class="alert" style="margin:6px 0">${__("Meter not readable: {last_error}", {last_error: esc(m.last_error)})}</div>` : ""}`;
   let body;
   if (!m.active) {
-    body = `<div class="card hint" style="margin:8px 0">${__("Planned – not active yet{note}. Under “Settings” enter the address, “Test source” and", {note: m.note ? ` (${esc(m.note)})` : ""})} <b>${__("active")}</b> setzen.</div>`;
+    body = `<div class="card hint" style="margin:8px 0">${__("Planned – not active yet{note}. Under “Settings” enter the address, use “Test source” and set <b>active</b>.", {note: m.note ? ` (${esc(m.note)})` : ""})}</div>`;
   } else if (p.status !== "ok") {
     body = `<p class="muted small">${esc(p.status || __("no data"))}${p.status === __("not enough data") ? __(" – the projection starts after a few days of readings. It is faster with the meter reading of the last invoice (Settings).") : ""}</p>`;
   } else {

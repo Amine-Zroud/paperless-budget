@@ -134,6 +134,8 @@
       <div id="bankSetup" class="card hint" hidden>
         First define under <a href="#" data-goto="settings">Settings</a> which document type or tag the app uses to recognise bank statements.
       </div>
+      <div id="obBar" class="card hint" hidden></div>
+      <div id="bkHint" class="card hint" hidden></div>
       <div class="kpis small-kpis" id="bankKpis">
         <div class="kpi"><div class="kpi-label">Transactions</div><div class="kpi-value" id="bkCount">–</div><div class="kpi-sub" id="bkCountSub"></div></div>
         <div class="kpi"><div class="kpi-label">With invoice</div><div class="kpi-value" id="bkMatched">–</div></div>
@@ -410,6 +412,24 @@
           </div>
 
           <div class="set-panel" data-panel="bank" data-title="Bank &amp; reconciliation" data-ico="🏦" hidden>
+            <div class="card" id="obCard">
+              <div class="cardhead">
+                <h3>Bank connections (Open Banking)</h3>
+                <div class="row"><button id="obSyncAll" hidden>Sync now</button></div>
+              </div>
+              <p class="muted small">Fetch transactions automatically from KBC, ING, Belfius or Revolut through Enable Banking (free for personal use). Credit cards of KBC are not available this way – keep importing their PDF statements.</p>
+              <div id="obSetup" class="muted small" hidden></div>
+              <div id="obConnections"></div>
+              <div id="obConnect" class="row" hidden>
+                <select id="obBank"></select>
+                <button id="obConnectBtn" class="primary">Connect a bank</button>
+              </div>
+              <p id="obMissing" class="muted small" hidden></p>
+              <details id="obManual" hidden>
+                <summary class="muted small">The bank redirected to a page that does not open? Paste its address here</summary>
+                <div class="row" style="margin-top:6px"><input id="obRedirect" placeholder="http://…/api/openbanking/callback?code=…&amp;state=…" style="flex:1"><button id="obComplete">Complete</button></div>
+              </details>
+            </div>
             <div class="card">
               <h3>Recognise bank statements</h3>
               <div class="field"><div class="lbl"><b>Document types</b><span>Documents of this type are read as bank statements</span></div><div id="stTypes" class="chips"></div></div>

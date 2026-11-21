@@ -276,6 +276,7 @@ The reader detects two common layouts automatically:
 | A | `[Date] Text Amount Value-date [Balance]` | PostFinance, Zürcher Kantonalbank |
 | B | `Date Text Value-date Amount [Balance]` | Bank Zimmerberg |
 | Single document | Credit/debit advice: `Reference Value-date Currency Amount` | Zürcher Kantonalbank |
+| Credit card | Beobank VISA monthly statement (French), see below | Beobank |
 
 Single documents (e.g. the ZKB credit advice of a rent payment) are treated like a statement with one transaction –
 choose the document type or tag of these documents as bank statement under *Settings → Bank* as well. If the same
@@ -286,6 +287,59 @@ whose sign could not be confirmed via the balance are marked "unverified".
 
 **Your bank doesn't work?** Please open an issue with the OCR text of a statement
 (Paperless → document → tab *Content*) – **blank out IBAN, account number, names and address first.**
+
+### Beobank credit card statements
+
+Monthly Beobank VISA statements ("Relevé de votre carte de crédit", PDF in Paperless) are read like bank statements:
+
+- Every row of `Vos transactions` becomes a transaction: purchases are debits, refunds and `REMBOURSEMENT…` rows credits;
+  foreign-currency purchases keep their exchange-rate line, `FRAIS DE CHANGE`, interest, annual fee and cash-withdrawal
+  fee rows are imported too (the amount of interest rows is on the line below the label).
+- **Verified against the summary box of each statement**: the sum of the rows must equal `Montant utilisé − Solde précédent`.
+  If it does not, the rows are marked "unverified" in the Reconcile tab. (The sample statements it was developed with all verify.)
+- Amounts with a space as thousands separator (`1 200,00`) and Paperless's collapsed whitespace are handled; if a
+  statement does not verify from Paperless's text, the original PDF is read as a second attempt.
+- **Card payments** (`PAIEMENT … IBAN BE…`) are transfers from your own bank account and are ignored automatically, as are
+  debits on your connected bank accounts that go to the card's repayment account. Card **top-ups to Revolut**
+  (`Revolut**1234*`) are offered as a one-click "ignore" rule on the Reconcile page.
+- Setup in Paperless: document type "Credit card statement" (and a correspondent), a workflow with the filename filter
+  `*BEOBANK VISA*`, then choose that document type under *Settings → Bank & reconciliation → Recognise bank statements*
+  and press *Import new*.
+
+## Bank connections (Open Banking)
+
+Instead of PDF statements the app can fetch transactions directly from **KBC, ING, Belfius and Revolut** through the
+aggregator [Enable Banking](https://enablebanking.com) (PSD2 account information; read-only). It is free for personal
+use of your own accounts ("restricted production" – only accounts you link yourself are reachable).
+The imported transactions use the same rules, invoice matching, rent/contract assignment and budget as PDF statements.
+
+**One-time setup**
+
+1. Create an account and an *application* at enablebanking.com (control panel) in restricted-production mode and download the
+   application's **private key**.
+2. Save the key as `data/enablebanking.pem` (the `data/` folder is not committed) and put the application id into `.env`
+   (`ENABLEBANKING_APP_ID`, see `.env.example`).
+3. Register the redirect URL `http://<address you open the app on>/api/openbanking/callback` for the application (or set
+   `ENABLEBANKING_REDIRECT_URL`). If a bank redirects to an address that does not open, paste it into the box under
+   *Settings → Bank & reconciliation → Bank connections* instead.
+4. `docker compose up -d`, then *Settings → Bank & reconciliation → Connect a bank*, choose the bank and approve in its app
+   (itsme, card reader …). The history is imported right away; afterwards new transactions are fetched every
+   `BANK_SYNC_HOURS` hours (default 8) or with *Sync now*.
+
+**Good to know**
+
+- Banks only grant access for at most **180 days**; the Reconcile tab and the settings warn two weeks ahead and offer *Reconnect*.
+- Banks allow only about **4 unattended requests per account and day**; the app respects that (and waits 6 hours after a
+  "rate limit" answer). Many banks deliver only ~90 days of history shortly after the approval, so the first import happens
+  immediately after connecting. *Import history* repeats it on demand.
+- *Ignore before* (per account) skips older transactions, e.g. when you already imported the same account from PDF statements.
+- Only EUR accounts are enabled by default (other currencies, e.g. Revolut pockets, would be added to the budget unconverted).
+- **KBC credit cards** are not available through PSD2; keep importing their PDF statements. **Beobank** is not offered by
+  the aggregator – use its PDF statements (above). Whether **Revolut** is offered for Belgian customers depends on
+  Enable Banking; the bank list says clearly when a bank is missing.
+- Transfers between your own accounts (counterparty IBAN = one of your connected accounts or the card's repayment account)
+  are ignored automatically so that they are not counted as expenses.
+- Ponto and other aggregators can be added behind the same small provider interface (`app/openbanking.py`).
 
 ## Setting up properties
 
@@ -450,6 +504,11 @@ The `.env` contains addresses and credentials. Names of tags and fields (`AMOUNT
 | `NK_TAG_NAME` | `Nebenkostenabrechnung` | Tag for statements filed in Paperless |
 | `FILES_DIR` | `/data/abrechnungen` | Storage of the generated Word/PDF files |
 | `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` | empty | Optional login |
+| `ENABLEBANKING_APP_ID` | empty | Application id from enablebanking.com (enables bank connections) |
+| `ENABLEBANKING_KEY_FILE` | `/data/enablebanking.pem` | Private key of the application (inside the container) |
+| `ENABLEBANKING_REDIRECT_URL` | `<app address>/api/openbanking/callback` | Redirect URL registered for the application |
+| `ENABLEBANKING_COUNTRIES` | `BE,LT,IE` | Countries whose banks are offered (Revolut may be listed under LT/IE) |
+| `BANK_SYNC_HOURS` | `8` | How often new bank transactions are fetched (banks allow ~4 background requests per day) |
 
 Budgets, income, rules, imported transactions and vehicles live in `./data/budget.db` (SQLite) –
 include this folder in your backup or download a backup under *Settings → Data & maintenance*.
@@ -471,6 +530,9 @@ are stored only in the app's own database – Paperless is not touched by them.
 app/main.py          FastAPI backend: proxy to the Paperless/Traccar API, SQLite, reports
 app/i18n.py          Backend translations (English source, German) and request language
 app/bank.py          Bank statement reader and reconciliation logic
+app/bank_beobank.py  Beobank VISA credit card statements (verified against the summary box)
+app/openbanking.py   Open Banking provider interface + Enable Banking client (JWT, paging, error mapping)
+app/bank_api.py      Bank connections: connect/callback, history import, scheduled sync, own-account transfers
 app/vehicles.py      Read fuel card invoices, vehicle key figures
 app/parking.py       Read Parkingpay statements (parking sessions with licence plates)
 app/payslip.py       Read payslips (gross, deductions, net, payout); Swiss German format, dispatches to payslip_be

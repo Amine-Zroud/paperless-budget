@@ -86,7 +86,7 @@ async function setStatus() {
           : `<div class="alert" style="margin:8px 0">${esc(pl.error || "")}</div>`}
       </div>
       <div class="card"><div class="cardhead"><h3>Traccar</h3>${!tc.configured ? `<span class="muted">${__("not set up")}</span>` : tc.ok ? `<span class="st-ok">${__("● connected")}</span>` : `<span class="st-bad">${__("● unreachable")}</span>`}</div>
-        ${!tc.configured ? `<p class="muted small">${__("For kilometres per vehicle")} <code>TRACCAR_URL</code> ${__("and credentials in the")} <code>.env</code> setzen.</p>`
+        ${!tc.configured ? `<p class="muted small">${__("For kilometres per vehicle set <code>TRACCAR_URL</code> and credentials in the <code>.env</code> file.")}</p>`
           : `<div class="st-row"><span>Server</span><span class="muted">${esc(tc.url)}</span></div>` + (tc.ok ? tc.devices.map(dev).join("") || `<div class="muted small">${__("No devices.")}</div>` : `<div class="alert" style="margin:8px 0">${esc(tc.error || "")}</div>`)}
       </div>
     </div>
@@ -183,10 +183,90 @@ async function setBank() {
   $("#setPaidTag").innerHTML = selOpts(tagOpts(S.settings.paid_tag_name), S.settings.paid_tag_name);
   $("#setPaidField").innerHTML = selOpts(dateFields(S.settings.paid_field_name), S.settings.paid_field_name);
   drawRules(await api("/api/rules"));
+  setOpenBanking();
 }
 $("#matchWindow").onchange = (e) => saveSetting({ match_window_days: Number(e.target.value) || 60 });
 $("#setPaidTag").onchange = (e) => saveSetting({ paid_tag_name: e.target.value });
 $("#setPaidField").onchange = (e) => saveSetting({ paid_field_name: e.target.value });
+
+// ------------------------------------------------------------ Open Banking (bank connections)
+const ibanTail = (i) => (i ? "•••• " + i.slice(-4) : "");
+const obStatusPill = (c) => c.status === "expired" ? `<span class="pill warn">${__("consent expired")}</span>`
+  : c.status === "active" ? `<span class="pill ${c.days_left != null && c.days_left <= 14 ? "warn" : ""}">${__("consent valid for {n} more days", {n: c.days_left ?? "?"})}</span>` : "";
+function obConnHtml(c) {
+  const rows = c.accounts.map((a) => `<tr data-acc="${a.id}">
+      <td>${esc(a.name || "")}<div class="muted small">${esc(ibanTail(a.iban))} · ${esc(a.currency || "")}</div></td>
+      <td class="num">${a.balance != null ? fmt(a.balance) : "–"}</td>
+      <td class="small">${a.last_sync ? esc(relTime(a.last_sync)) : __("never")}${a.last_booking_date ? `<div class="muted small">${fmtDate(a.last_booking_date)}</div>` : ""}</td>
+      <td><label class="check small"><input type="checkbox" data-ob="enabled" ${a.enabled ? "checked" : ""}> ${__("active")}</label></td>
+      <td><input type="date" data-ob="from" value="${esc(a.from_date || "")}" title="${__("Ignore transactions before this date (e.g. already imported from PDF statements)")}"></td>
+      <td class="row"><button class="linkbtn" data-ob="sync">${__("Sync now")}</button><button class="linkbtn" data-ob="history">${__("Import history")}</button></td></tr>`).join("");
+  return `<div class="ob-conn" data-conn="${c.id}"><div class="cardhead"><div><b>${esc(c.bank)}</b> ${obStatusPill(c)}${c.last_error ? ` <span class="neg small">${esc(c.last_error)}</span>` : ""}</div>
+      <div class="row">${c.status === "expired" || (c.days_left != null && c.days_left <= 14) ? `<button class="primary" data-ob="reconnect" data-bank="${esc(c.bank)}" data-country="${esc(c.country || "BE")}">${__("Reconnect")}</button>` : ""}
+      <button class="linkbtn danger" data-ob="disconnect" data-bank="${esc(c.bank)}">${__("Disconnect")}</button></div></div>
+      <div class="tablewrap"><table class="etable"><thead><tr><th>${__("Account")}</th><th class="num">${__("Balance")}</th><th>${__("Last sync")}</th><th></th><th>${__("Ignore before")}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+async function setOpenBanking() {
+  let st;
+  try { st = S.ob = await api("/api/openbanking/status"); } catch (e) { $("#obConnections").innerHTML = `<div class="neg small">${esc(e.message)}</div>`; return; }
+  $("#obSetup").hidden = st.configured;
+  $("#obSetup").innerHTML = st.configured ? "" : `<ol>
+    <li>${__("Create an account and an application at <b>enablebanking.com</b> (control panel) in “restricted production” mode and download its private key.")}</li>
+    <li>${__("Save the key as {file} and set ENABLEBANKING_APP_ID in the .env file.", {file: `<code>${esc(st.key_file)}</code>`})}</li>
+    <li>${__("Register this redirect URL for the application: {url}", {url: `<code>${esc(st.redirect_url)}</code>`})}</li>
+    <li>${__("Restart the app (docker compose up -d), then connect your banks here.")}</li></ol>`;
+  $("#obConnections").innerHTML = st.connections.map(obConnHtml).join("");
+  $("#obSyncAll").hidden = !st.connections.length;
+  $("#obConnect").hidden = !st.configured; $("#obManual").hidden = !st.configured;
+  if (!st.configured) return;
+  if (!OB_BANKS) {
+    try { OB_BANKS = await api("/api/openbanking/banks"); } catch (e) { $("#obMissing").hidden = false; $("#obMissing").textContent = e.message; return; }
+  }
+  const opt = (b) => `<option value="${esc(b.name)}|${esc(b.country)}">${esc(b.name)} (${esc(b.country)})</option>`;
+  const fav = OB_BANKS.banks.filter((b) => b.featured), rest = OB_BANKS.banks.filter((b) => !b.featured);
+  $("#obBank").innerHTML = `<option value="">${__("– choose a bank –")}</option>` + (fav.length ? `<optgroup label="${__("KBC, ING, Belfius, Revolut")}">${fav.map(opt).join("")}</optgroup>` : "") + `<optgroup label="${__("Other banks")}">${rest.map(opt).join("")}</optgroup>`;
+  $("#obMissing").hidden = !OB_BANKS.missing.length;
+  $("#obMissing").textContent = OB_BANKS.missing.length ? __("Not offered by the aggregator: {names}. Import their PDF statements instead.", {names: OB_BANKS.missing.join(", ")}) : "";
+}
+let OB_BANKS = null;
+async function obConnect(bank, country) {
+  try { const r = await api("/api/openbanking/connect", { method: "POST", body: JSON.stringify({ bank, country }) }); location.href = r.url; }
+  catch (e) { toast(e.message, true); }
+}
+$("#obConnectBtn").onclick = () => { const v = $("#obBank").value; if (!v) { toast(__("Choose a bank"), true); return; } const [bank, country] = v.split("|"); obConnect(bank, country); };
+$("#obComplete").onclick = async (e) => {
+  e.target.disabled = true;
+  try { const r = await api("/api/openbanking/complete", { method: "POST", body: JSON.stringify({ redirect_url: $("#obRedirect").value.trim() }) }); toast(__("Bank connected")); $("#obRedirect").value = ""; setOpenBanking(); }
+  catch (err) { toast(err.message, true); }
+  e.target.disabled = false;
+};
+$("#obSyncAll").onclick = async (e) => {
+  e.target.disabled = true;
+  try { const r = await api("/api/openbanking/sync", { method: "POST", body: "{}" }); toast(__("{added} new transactions", {added: r.added})); } catch (err) { toast(err.message, true); }
+  e.target.disabled = false; setOpenBanking();
+};
+$("#obConnections").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ob]"); if (!b) return;
+  const kind = b.dataset.ob, id = b.closest("[data-acc]")?.dataset.acc;
+  try {
+    if (kind === "sync" || kind === "history") {
+      b.disabled = true;
+      const r = await api(`/api/openbanking/accounts/${id}/sync`, { method: "POST", body: JSON.stringify({ full: kind === "history" }) });
+      toast(r.skipped ? __("Account is switched off") : __("{added} new transactions", {added: r.added}));
+    } else if (kind === "reconnect") { return obConnect(b.dataset.bank, b.dataset.country); }
+    else if (kind === "disconnect") {
+      if (!confirm(__("Disconnect {bank}? Imported transactions stay.", {bank: b.dataset.bank}))) return;
+      await api(`/api/openbanking/connections/${b.closest("[data-conn]").dataset.conn}`, { method: "DELETE" });
+    } else return;
+  } catch (err) { toast(err.message, true); }
+  setOpenBanking();
+});
+$("#obConnections").addEventListener("change", async (e) => {
+  const t = e.target, kind = t.dataset.ob; if (!kind) return;
+  const id = t.closest("[data-acc]").dataset.acc;
+  try { await api(`/api/openbanking/accounts/${id}`, { method: "PUT", body: JSON.stringify(kind === "enabled" ? { enabled: t.checked } : { from_date: t.value }) }); toast(__("Saved")); }
+  catch (err) { toast(err.message, true); }
+});
 
 // ------------------------------------------------------------ Vormerkungen & Lohn
 function setPlan() {
