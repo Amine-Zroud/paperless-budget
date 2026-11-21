@@ -134,3 +134,11 @@ def test_pick_balance_prefers_closing_booked():
 def test_featured_banks():
     assert all(ob.is_featured(n) for n in ("KBC Bank", "ING Belgium", "Belfius Bank", "Revolut"))
     assert not ob.is_featured("Argenta")
+
+
+def test_null_names_and_odd_remittance_do_not_break_normalisation():
+    """Revolut sends counterparties like {"name": null}; remittance can be a plain string."""
+    t = ob.normalize(raw(creditor={"name": None}, creditor_account=None, remittance_information="Coffee"), "u1")
+    assert t.amount == -25.50 and t.merchant == "Coffee" and t.text == "Coffee"
+    t2 = ob.normalize(raw(creditor=None, debtor=None, note=None, remittance_information=None), "u1")
+    assert t2 is not None and t2.merchant == ""

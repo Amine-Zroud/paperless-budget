@@ -16,3 +16,6 @@ docker-compose.override.yml
 
 # real payslips turned into test fixtures (personal data) – local only
 tests/private_fixtures/
+
+# private keys (Enable Banking)
+*.pem

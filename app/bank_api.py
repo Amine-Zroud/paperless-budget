@@ -267,7 +267,17 @@ async def sync_account(account_id: int, full: bool = False) -> dict:
         with core.db() as con:
             con.execute("UPDATE bank_connections SET last_error = ? WHERE id = ?", (str(e)[:300], acc["cid"]))
         raise _fail(e)
-    txs = ob.dedupe([t for t in (ob.normalize(r, acc["uid"], core.CURRENCY) for r in raw) if t])
+    parsed, bad = [], 0
+    for r in raw:
+        try:
+            t = ob.normalize(r, acc["uid"], core.CURRENCY)
+        except Exception as e:                       # one malformed transaction must not block the whole account
+            bad += 1
+            log.warning("Bank account %s: skipped a transaction (%s): %s", account_id, r.get("entry_reference") or r.get("transaction_id"), e)
+            continue
+        if t:
+            parsed.append(t)
+    txs = ob.dedupe(parsed)
     if acc["from_date"]:
         txs = [t for t in txs if t.date >= acc["from_date"]]
     new_ids: list[int] = []
@@ -290,7 +300,7 @@ async def sync_account(account_id: int, full: bool = False) -> dict:
         con.execute("UPDATE bank_accounts SET last_sync = ?, last_booking_date = ?, balance = COALESCE(?, balance) WHERE id = ?",
                     (datetime.now().isoformat(timespec="seconds"), last, balance, account_id))
         con.execute("UPDATE bank_connections SET last_error = NULL WHERE id = ?", (acc["cid"],))
-    return {"account": account_id, "fetched": len(raw), "added": len(new_ids)}
+    return {"account": account_id, "fetched": len(raw), "added": len(new_ids), "skipped": bad}
 
 
 @router.post("/api/openbanking/accounts/{account_id}/sync")

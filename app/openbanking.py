@@ -70,7 +70,7 @@ class Provider(Protocol):
 
 # ---------------------------------------------------------------- normalisation
 def _name(party: Any) -> str:
-    return (party or {}).get("name", "").strip() if isinstance(party, dict) else ""
+    return str(party.get("name") or "").strip() if isinstance(party, dict) else ""      # banks send "name": null
 
 
 def _iban(acc: Any) -> str:
@@ -93,10 +93,12 @@ def normalize(raw: dict, account_uid: str, default_currency: str = "EUR") -> Opt
     value = -abs(amount) if debit else abs(amount)
     cp, cp_acc = (raw.get("creditor"), raw.get("creditor_account")) if debit else (raw.get("debtor"), raw.get("debtor_account"))
     name, iban = _name(cp), _iban(cp_acc)
-    remit = " ".join(x.strip() for x in (raw.get("remittance_information") or []) if x and x.strip())
+    info = raw.get("remittance_information") or []
+    info = [info] if isinstance(info, str) else info
+    remit = " ".join(str(x).strip() for x in info if x and str(x).strip())
     cur = ta.get("currency") or default_currency
     parts: list[str] = []
-    for p in (name, remit, (raw.get("note") or "").strip(), f"IBAN {iban}" if iban else ""):
+    for p in (name, remit, str(raw.get("note") or "").strip(), f"IBAN {iban}" if iban else ""):
         if p and p not in parts:
             parts.append(p)
     if cur != default_currency:

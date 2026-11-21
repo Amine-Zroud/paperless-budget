@@ -255,3 +255,14 @@ def test_history_is_imported_automatically_right_after_connecting(env, monkeypat
     assert len(rows()) == 2
     call = [x for x in agg.calls if x[1] == "/accounts/u-eur/transactions"][0]
     assert call[2]["strategy"] == "longest"                       # as far back as the bank allows
+
+
+def test_one_malformed_transaction_is_skipped_not_fatal(env):
+    c, agg = env
+    bad = tx("9", "1.00", "2026-05-05")
+    bad["transaction_amount"] = {"amount": None, "currency": "EUR"}
+    bad2 = tx("8", "2.00", "2026-05-05", name=None)
+    agg.txs = [tx("1", "25.50", "2026-05-02"), bad, bad2]
+    acc = connect(c, agg)["Current"]
+    r = c.post(f"/api/openbanking/accounts/{acc['id']}/sync", json={"full": True}).json()
+    assert r["added"] == 2 and len(rows()) == 2
